@@ -20,6 +20,14 @@ type HomeTab = 'news' | 'focus' | 'calendar';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
+// Hardcoded default tickers until user settings are implemented
+const DEFAULT_HOLDINGS: PortfolioHolding[] = [
+  { ticker: 'TSLA', shares: 10, avgCost: 453.14, purchaseDate: '2026-01-02' },
+  { ticker: 'MNMD', shares: 200, avgCost: 13.45, purchaseDate: '2026-01-02' },
+  { ticker: 'TMC', shares: 500, avgCost: 6.42, purchaseDate: '2026-01-02' },
+];
+const DEFAULT_WATCHLIST = ['AAPL'];
+
 export const HomeScreen: React.FC = () => {
   const { isDark } = useTheme();
   const themeColors = isDark ? colors.dark : colors.light;
@@ -165,28 +173,41 @@ export const HomeScreen: React.FC = () => {
     return testHolding?.shares || 10;
   };
 
-  // Load tickers from cache
+  // Load tickers from cache (with hardcoded defaults for now)
   const loadTickers = useCallback(async () => {
     try {
-      // Load holdings from cache
+      // Load holdings from cache, fall back to hardcoded defaults
       const cachedHoldings = await DataService.getCachedData<string[]>('holdings');
-      if (cachedHoldings) {
+      if (cachedHoldings && cachedHoldings.length > 0) {
         setHoldingsTickers(cachedHoldings);
+      } else {
+        // Use hardcoded defaults
+        setHoldingsTickers(DEFAULT_HOLDINGS.map(h => h.ticker));
       }
 
-      // Load portfolio holdings with full details
+      // Load portfolio holdings with full details, fall back to hardcoded defaults
       const cachedPortfolioHoldings = await DataService.getCachedData<PortfolioHolding[]>('portfolio_holdings');
-      if (cachedPortfolioHoldings) {
+      if (cachedPortfolioHoldings && cachedPortfolioHoldings.length > 0) {
         setPortfolioHoldings(cachedPortfolioHoldings);
+      } else {
+        // Use hardcoded defaults
+        setPortfolioHoldings(DEFAULT_HOLDINGS);
       }
 
-      // Load watchlist from cache
+      // Load watchlist from cache, fall back to hardcoded defaults
       const cachedWatchlist = await DataService.getCachedData<string[]>('watchlist');
-      if (cachedWatchlist) {
+      if (cachedWatchlist && cachedWatchlist.length > 0) {
         setWatchlistTickers(cachedWatchlist);
+      } else {
+        // Use hardcoded defaults
+        setWatchlistTickers(DEFAULT_WATCHLIST);
       }
     } catch (error) {
       console.error('Error loading tickers:', error);
+      // On error, use hardcoded defaults
+      setHoldingsTickers(DEFAULT_HOLDINGS.map(h => h.ticker));
+      setPortfolioHoldings(DEFAULT_HOLDINGS);
+      setWatchlistTickers(DEFAULT_WATCHLIST);
     }
   }, []);
 
