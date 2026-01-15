@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Catalyst App",
-    "slug": "catalyst-native",
+    "slug": "catalyst-react-native-ui-v1-0",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -16,7 +16,10 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.catalyst.app",
       "infoPlist": {
-        "UIBackgroundModes": ["fetch", "remote-notification"]
+        "UIBackgroundModes": [
+          "fetch",
+          "remote-notification"
+        ]
       }
     },
     "android": {
@@ -36,8 +39,9 @@
     "plugins": [],
     "extra": {
       "eas": {
-        "projectId": "catalyst-native"
+        "projectId": "33ef03c2-81d7-47aa-bc9b-41b1a356b037"
       }
-    }
+    },
+    "owner": "catalyst-finance"
   }
 }
