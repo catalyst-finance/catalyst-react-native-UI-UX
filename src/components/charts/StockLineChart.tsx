@@ -1531,34 +1531,33 @@ export const StockLineChart: React.FC<StockLineChartProps> = ({
                   const leftPercent = isVisible 
                     ? Math.min(95, Math.max(5, (adjustedTime / futureWindowMs) * 100))
                     : 150;
-                  return { catalyst, index, leftPercent, isVisible, timeFromNow };
+                  
+                  // Calculate dot size for sorting
+                  let baseDotSizes: number[];
+                  if (futureDays <= 90) {
+                    baseDotSizes = [18, 21, 24, 27, 30];
+                  } else if (futureDays <= 180) {
+                    baseDotSizes = [15, 18, 21, 24, 27];
+                  } else if (futureDays <= 365) {
+                    baseDotSizes = [12, 15, 18, 21, 24];
+                  } else if (futureDays <= 730) {
+                    baseDotSizes = [10.5, 12.75, 15, 17.25, 19.5];
+                  } else {
+                    baseDotSizes = [9, 10.5, 12, 13.5, 15];
+                  }
+                  const dotSize = baseDotSizes[index % baseDotSizes.length];
+                  
+                  return { catalyst, index, leftPercent, isVisible, timeFromNow, dotSize };
                 });
                 
-                return catalystPositions.map(({ catalyst, index, leftPercent, isVisible, timeFromNow }) => {
+                // Sort by dot size descending so smaller dots render last (on top)
+                const sortedPositions = [...catalystPositions].sort((a, b) => b.dotSize - a.dotSize);
+                
+                return sortedPositions.map(({ catalyst, index, leftPercent, isVisible, timeFromNow, dotSize: preCalculatedDotSize }) => {
                 const eventColor = getEventTypeHexColor(catalyst.catalyst.type);
                 
-                // Scale dot sizes based on future time range
-                // Shorter ranges (more zoomed in) = larger dots
-                // Longer ranges (more zoomed out) = smaller dots
-                let baseDotSizes: number[];
-                if (futureDays <= 90) {
-                  // 1W to 3M: Largest dots (increased by 50%)
-                  baseDotSizes = [18, 21, 24, 27, 30];
-                } else if (futureDays <= 180) {
-                  // 3M to 6M: Large dots (increased by 50%)
-                  baseDotSizes = [15, 18, 21, 24, 27];
-                } else if (futureDays <= 365) {
-                  // 6M to 1Y: Medium dots (increased by 50%)
-                  baseDotSizes = [12, 15, 18, 21, 24];
-                } else if (futureDays <= 730) {
-                  // 1Y to 2Y: Small dots (increased by 50%)
-                  baseDotSizes = [10.5, 12.75, 15, 17.25, 19.5];
-                } else {
-                  // 2Y to 3Y: Smallest dots (increased by 50%)
-                  baseDotSizes = [9, 10.5, 12, 13.5, 15];
-                }
-                
-                const dotSize = baseDotSizes[index % baseDotSizes.length];
+                // Use pre-calculated dot size from sorting
+                const dotSize = preCalculatedDotSize;
                 const halfDotSize = dotSize / 2;
                 
                 // Portfolio view: colored dot + dashed line + company logo below
