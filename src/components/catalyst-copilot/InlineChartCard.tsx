@@ -357,6 +357,43 @@ export function InlineChartCard({
     };
   }, [chartData, quoteData, chartWidth, chartHeight]);
 
+  // Calculate after-hours change from chart data (when in after-hours period)
+  const afterHoursChange = useMemo(() => {
+    // Only calculate during after-hours or closed (overnight)
+    if (currentPeriod !== 'afterhours' && currentPeriod !== 'closed') {
+      return null;
+    }
+    
+    if (!chartData || chartData.length === 0) {
+      return null;
+    }
+    
+    // Find the last regular session data point
+    let regularSessionClose: number | null = null;
+    for (let i = chartData.length - 1; i >= 0; i--) {
+      const point = chartData[i];
+      if (point.session === 'regular') {
+        regularSessionClose = point.value;
+        break;
+      }
+    }
+    
+    // Find the last after-hours data point
+    const afterHoursData = chartData.filter(d => d.session === 'after-hours');
+    const lastAfterHoursValue = afterHoursData.length > 0 
+      ? afterHoursData[afterHoursData.length - 1].value 
+      : null;
+    
+    // Calculate after-hours change
+    if (regularSessionClose !== null && regularSessionClose > 0 && lastAfterHoursValue !== null) {
+      const dollarChange = lastAfterHoursValue - regularSessionClose;
+      const percentChange = (dollarChange / regularSessionClose) * 100;
+      return { dollarChange, percentChange };
+    }
+    
+    return null;
+  }, [chartData, currentPeriod]);
+
   const isPositive = quoteData ? quoteData.change_percent >= 0 : true;
   const priceColor = isPositive ? colors.positive : colors.negative;
   const chartColor = isPositive ? colors.positive : colors.negative; // Match chart line to price direction
@@ -383,26 +420,32 @@ export function InlineChartCard({
             <View style={styles.changesRow}>
               {/* Today's Change */}
               <View style={styles.changeItem}>
-                <Text style={[styles.changeArrow, { color: isPositive ? colors.positive : colors.negative }]}>
-                  {isPositive ? '▲' : '▼'}
-                </Text>
-                <Text style={[styles.changePercent, { color: isPositive ? colors.positive : colors.negative }]}>
-                  {Math.abs(quoteData.change_percent).toFixed(2)}%
-                </Text>
-                <Text style={[styles.changeLabel, { color: colors.secondaryText }]}>
-                  Today
-                </Text>
+                <View style={styles.changeValueRow}>
+                  <Text style={[styles.changeArrow, { color: isPositive ? colors.positive : colors.negative }]}>
+                    {isPositive ? '▲' : '▼'}
+                  </Text>
+                  <Text style={[styles.changePercent, { color: isPositive ? colors.positive : colors.negative }]}>
+                    {Math.abs(quoteData.change_percent).toFixed(2)}%
+                  </Text>
+                </View>
+                {(afterHoursChange || (currentPeriod === 'afterhours' || currentPeriod === 'closed')) && (
+                  <Text style={[styles.changeLabel, { color: colors.secondaryText }]}>
+                    Today
+                  </Text>
+                )}
               </View>
               
-              {/* After Hours Change (if available) */}
-              {quoteData.after_hours_change_percent !== undefined && (
+              {/* After Hours Change - use calculated value or database value */}
+              {(afterHoursChange || quoteData.after_hours_change_percent !== undefined) && (
                 <View style={styles.changeItem}>
-                  <Text style={[styles.changeArrow, { color: quoteData.after_hours_change_percent >= 0 ? colors.positive : colors.negative }]}>
-                    {quoteData.after_hours_change_percent >= 0 ? '▲' : '▼'}
-                  </Text>
-                  <Text style={[styles.changePercent, { color: quoteData.after_hours_change_percent >= 0 ? colors.positive : colors.negative }]}>
-                    {Math.abs(quoteData.after_hours_change_percent).toFixed(2)}%
-                  </Text>
+                  <View style={styles.changeValueRow}>
+                    <Text style={[styles.changeArrow, { color: (afterHoursChange?.percentChange ?? quoteData.after_hours_change_percent ?? 0) >= 0 ? colors.positive : colors.negative }]}>
+                      {(afterHoursChange?.percentChange ?? quoteData.after_hours_change_percent ?? 0) >= 0 ? '▲' : '▼'}
+                    </Text>
+                    <Text style={[styles.changePercent, { color: (afterHoursChange?.percentChange ?? quoteData.after_hours_change_percent ?? 0) >= 0 ? colors.positive : colors.negative }]}>
+                      {Math.abs(afterHoursChange?.percentChange ?? quoteData.after_hours_change_percent ?? 0).toFixed(2)}%
+                    </Text>
+                  </View>
                   <Text style={[styles.changeLabel, { color: colors.secondaryText }]}>
                     After Hours
                   </Text>
@@ -621,9 +664,12 @@ const styles = StyleSheet.create({
     gap: 16,
   },
   changeItem: {
+    alignItems: 'center',
+  },
+  changeValueRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 2,
   },
   changeArrow: {
     fontSize: 10,
@@ -634,6 +680,7 @@ const styles = StyleSheet.create({
   },
   changeLabel: {
     fontSize: 11,
+    marginTop: 1,
   },
   chartContainer: {
     height: 140,

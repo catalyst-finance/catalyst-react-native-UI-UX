@@ -82,6 +82,7 @@ interface StockLineChartProps {
   previousDayData?: { close: number; previousClose: number } | null;
   showUpcomingRange?: boolean;
   onCrosshairChange?: (isActive: boolean, value?: number, timestamp?: number) => void;
+  onDisplayValuesChange?: (values: { displayPrice: number; displayChange: number; displayChangePercent: number; isPositive: boolean }) => void;
   hideHeader?: boolean; // Hide the header section (for use in PortfolioChart)
   showTickerLogos?: boolean; // Show ticker logos instead of colored dots (for portfolio view)
 }
@@ -111,6 +112,7 @@ export const StockLineChart: React.FC<StockLineChartProps> = ({
   previousDayData = null,
   showUpcomingRange = true,
   onCrosshairChange,
+  onDisplayValuesChange,
   hideHeader = false,
   showTickerLogos = false,
 }) => {
@@ -424,6 +426,18 @@ export const StockLineChart: React.FC<StockLineChartProps> = ({
     ? ((crosshairPoint.value - referencePrice) / referencePrice) * 100
     : periodPriceChangePercent;
   const isDisplayPositive = displayPriceChange >= 0;
+
+  // Notify parent of display value changes (for PortfolioChart header)
+  useEffect(() => {
+    if (onDisplayValuesChange && !crosshairPoint) {
+      onDisplayValuesChange({
+        displayPrice: currentPrice,
+        displayChange: periodPriceChange,
+        displayChangePercent: periodPriceChangePercent,
+        isPositive: periodPriceChange >= 0,
+      });
+    }
+  }, [periodPriceChange, periodPriceChangePercent, currentPrice, onDisplayValuesChange, crosshairPoint]);
   
   // Long-press detection for crosshair activation
   const longPressTimer = useRef<NodeJS.Timeout | null>(null);
@@ -1312,13 +1326,14 @@ export const StockLineChart: React.FC<StockLineChartProps> = ({
             {crosshairPoint && crosshairPoint.x <= actualPastWidth && (
               <>
                 {/* Vertical line - position as percentage of pastSection width */}
+                {/* Start at margin.top (40px) to avoid overlapping header */}
                 <View
                   style={{
                     position: 'absolute',
                     left: `${(crosshairPoint.x / actualPastWidth) * 100}%`,
-                    top: 0,
+                    top: 40,
                     width: 1,
-                    height: height,
+                    height: height - 40,
                     backgroundColor: chartColor,
                     opacity: 0.5,
                   }}
@@ -1488,7 +1503,7 @@ export const StockLineChart: React.FC<StockLineChartProps> = ({
                   styles.crosshairLabel,
                   {
                     left: leftPosition,
-                    top: -20, // Position above the chart
+                    top: 22, // Position right above the crosshair line (which starts at 40px)
                     transform: [{ translateX: `${translateX}%` }],
                   }
                 ]}

@@ -77,6 +77,14 @@ export const PortfolioChart: React.FC<PortfolioChartProps> = ({
   const [crosshairValue, setCrosshairValue] = useState<number | null>(null);
   const [crosshairTimestamp, setCrosshairTimestamp] = useState<number | null>(null);
   const [catalystsWithLogos, setCatalystsWithLogos] = useState<FutureCatalyst[]>([]);
+  
+  // Period-based display values from StockLineChart (updated when slider changes)
+  const [periodDisplayValues, setPeriodDisplayValues] = useState<{
+    displayPrice: number;
+    displayChange: number;
+    displayChangePercent: number;
+    isPositive: boolean;
+  } | null>(null);
 
   // Determine current market period based on time
   const currentPeriod = useMemo(() => {
@@ -134,6 +142,8 @@ export const PortfolioChart: React.FC<PortfolioChartProps> = ({
 
   // Calculate session-specific change based on current period
   const sessionSpecificChange = useMemo(() => {
+    // Only show session-specific change during actual extended hours trading
+    // Not when market is closed
     if (selectedTimeRange !== '1D' || currentPeriod === 'regular' || currentPeriod === 'closed') {
       return null;
     }
@@ -146,16 +156,64 @@ export const PortfolioChart: React.FC<PortfolioChartProps> = ({
       return { dollarChange, percentChange };
     } else if (currentPeriod === 'afterhours') {
       // After-hours: change from regular session close
-      // For portfolio, we'll use the day change as the reference
-      // since we don't track individual session closes for the portfolio
-      const regularSessionClose = currentValue - dayChange;
-      const dollarChange = currentValue - regularSessionClose;
-      const percentChange = regularSessionClose > 0 ? (dollarChange / regularSessionClose) * 100 : 0;
-      return { dollarChange, percentChange };
+      // IMPORTANT: portfolioData may not include all holdings if some don't have intraday data
+      // We need to find the last regular session data point from portfolioData
+      // and use that as the reference, but only if portfolioData represents the full portfolio
+      
+      // Find the last data point that falls within regular trading hours (9:30 AM - 4:00 PM ET)
+      // or has session === 'regular'
+      let regularSessionClose: number | null = null;
+      
+      for (let i = portfolioData.length - 1; i >= 0; i--) {
+        const point = portfolioData[i];
+        
+        // Check session field - this is the most reliable indicator
+        if (point.session === 'regular') {
+          regularSessionClose = point.value;
+          break;
+        }
+        
+        // Fallback: check timestamp
+        const pointDate = new Date(point.timestamp);
+        const utcHours = pointDate.getUTCHours();
+        const utcMinutes = pointDate.getUTCMinutes();
+        const utcTotalMinutes = utcHours * 60 + utcMinutes;
+        const etOffset = -5 * 60; // EST
+        let etTotalMinutes = utcTotalMinutes + etOffset;
+        
+        if (etTotalMinutes < 0) etTotalMinutes += 24 * 60;
+        if (etTotalMinutes >= 24 * 60) etTotalMinutes -= 24 * 60;
+        
+        const regularStart = 9 * 60 + 30; // 9:30 AM
+        const regularEnd = 16 * 60; // 4:00 PM
+        
+        if (etTotalMinutes >= regularStart && etTotalMinutes < regularEnd) {
+          regularSessionClose = point.value;
+          break;
+        }
+      }
+      
+      // Get the last after-hours value from portfolioData to compare against regular close
+      // This ensures we're comparing data from the same set of stocks
+      const afterHoursData = portfolioData.filter(d => d.session === 'after-hours');
+      const lastAfterHoursValue = afterHoursData.length > 0 
+        ? afterHoursData[afterHoursData.length - 1].value 
+        : null;
+      
+      if (regularSessionClose !== null && regularSessionClose > 0 && lastAfterHoursValue !== null) {
+        // Use the after-hours value from portfolioData, not currentValue
+        // This ensures we're comparing the same set of stocks
+        const dollarChange = lastAfterHoursValue - regularSessionClose;
+        const percentChange = (dollarChange / regularSessionClose) * 100;
+        return { dollarChange, percentChange };
+      }
+      
+      // Fallback: if no regular session data or no after-hours data, don't show after-hours change
+      return null;
     }
 
     return null;
-  }, [currentValue, previousClose, dayChange, currentPeriod, selectedTimeRange]);
+  }, [currentValue, previousClose, portfolioData, currentPeriod, selectedTimeRange]);
 
   // Handle crosshair changes from StockLineChart
   const handleCrosshairChange = useCallback((isActive: boolean, value?: number, timestamp?: number) => {
@@ -175,6 +233,16 @@ export const PortfolioChart: React.FC<PortfolioChartProps> = ({
       onCrosshairChange(isActive);
     }
   }, [onCrosshairChange]);
+
+  // Handle display values change from StockLineChart (when slider changes)
+  const handleDisplayValuesChange = useCallback((values: {
+    displayPrice: number;
+    displayChange: number;
+    displayChangePercent: number;
+    isPositive: boolean;
+  }) => {
+    setPeriodDisplayValues(values);
+  }, []);
 
   // Calculate current portfolio value from holdings
   const calculateCurrentValue = useCallback(async () => {
@@ -567,11 +635,28 @@ export const PortfolioChart: React.FC<PortfolioChartProps> = ({
         {/* Change row - styled exactly like StockLineChart */}
         <View style={styles.changeContainer}>
           {(() => {
-            // Calculate display values based on crosshair or current state
-            const displayValue = crosshairActive && crosshairValue !== null ? crosshairValue : currentValue;
-            const displayChange = displayValue - previousClose;
-            const displayChangePercent = previousClose > 0 ? (displayChange / previousClose) * 100 : 0;
-            const isDisplayPositive = displayChange >= 0;
+            // Use period-based values from StockLineChart when available (slider changes)
+            // Otherwise fall back to previous close comparison
+            let displayChange: number;
+            let displayChangePercent: number;
+            let isDisplayPositive: boolean;
+            
+            if (crosshairActive && crosshairValue !== null) {
+              // Crosshair active - calculate from previous close
+              displayChange = crosshairValue - previousClose;
+              displayChangePercent = previousClose > 0 ? (displayChange / previousClose) * 100 : 0;
+              isDisplayPositive = displayChange >= 0;
+            } else if (periodDisplayValues) {
+              // Use period-based values from StockLineChart (slider position)
+              displayChange = periodDisplayValues.displayChange;
+              displayChangePercent = periodDisplayValues.displayChangePercent;
+              isDisplayPositive = periodDisplayValues.isPositive;
+            } else {
+              // Fallback to previous close comparison
+              displayChange = currentValue - previousClose;
+              displayChangePercent = previousClose > 0 ? (displayChange / previousClose) * 100 : 0;
+              isDisplayPositive = displayChange >= 0;
+            }
             
             // Determine if we should show session-specific data
             // For portfolio, we'll show extended hours info when in 1D view and market is in extended hours
@@ -643,6 +728,7 @@ export const PortfolioChart: React.FC<PortfolioChartProps> = ({
           onTimeRangeChange={handleTimeRangeChange}
           onFutureRangeChange={handleFutureRangeChange}
           onCrosshairChange={handleCrosshairChange}
+          onDisplayValuesChange={handleDisplayValuesChange}
           hideHeader={true}
           showTickerLogos={true}
         />
@@ -722,8 +808,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   changeLabel: {
-    fontSize: 11,
-    marginTop: 4,
+    fontSize: 12,
   },
   tickerBadge: {
     paddingHorizontal: 12,

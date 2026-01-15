@@ -183,6 +183,89 @@ export const HomeScreen: React.FC = () => {
     }));
   }, [futurePortfolioEvents]);
 
+  // Calculate current market period based on time
+  const currentMarketPeriod = useMemo((): 'premarket' | 'regular' | 'afterhours' | 'closed' => {
+    const now = new Date();
+    
+    // Convert to ET
+    const utcHours = now.getUTCHours();
+    const utcMinutes = now.getUTCMinutes();
+    const utcTotalMinutes = utcHours * 60 + utcMinutes;
+    
+    // ET is UTC-5 (EST)
+    const etOffset = -5 * 60;
+    let etTotalMinutes = utcTotalMinutes + etOffset;
+    
+    // Handle day wraparound
+    if (etTotalMinutes < 0) {
+      etTotalMinutes += 24 * 60;
+    } else if (etTotalMinutes >= 24 * 60) {
+      etTotalMinutes -= 24 * 60;
+    }
+    
+    // Check day of week in ET
+    const etDate = new Date(now.getTime() + etOffset * 60 * 1000);
+    const dayOfWeek = etDate.getUTCDay();
+    
+    if (dayOfWeek === 0 || dayOfWeek === 6) {
+      return 'closed';
+    }
+    
+    const preMarketStart = 4 * 60;
+    const regularStart = 9 * 60 + 30;
+    const regularEnd = 16 * 60;
+    const afterHoursEnd = 20 * 60;
+    
+    if (etTotalMinutes < preMarketStart) {
+      return 'closed';
+    } else if (etTotalMinutes < regularStart) {
+      return 'premarket';
+    } else if (etTotalMinutes < regularEnd) {
+      return 'regular';
+    } else if (etTotalMinutes < afterHoursEnd) {
+      return 'afterhours';
+    } else {
+      return 'closed';
+    }
+  }, []);
+
+  // Calculate after-hours change for each ticker
+  const afterHoursChanges = useMemo(() => {
+    const changes: Record<string, number> = {};
+    
+    // Only calculate during after-hours
+    if (currentMarketPeriod !== 'afterhours') {
+      return changes;
+    }
+    
+    // For each ticker, find the regular session close and calculate after-hours change
+    Object.keys(intradayData).forEach(ticker => {
+      const data = intradayData[ticker];
+      if (!data || data.length === 0) return;
+      
+      const stock = stocksData[ticker];
+      if (!stock) return;
+      
+      // Find the last regular session data point
+      let regularSessionClose: number | null = null;
+      for (let i = data.length - 1; i >= 0; i--) {
+        const point = data[i];
+        if (point.session === 'regular') {
+          regularSessionClose = point.value;
+          break;
+        }
+      }
+      
+      // Calculate after-hours change percentage
+      if (regularSessionClose !== null && regularSessionClose > 0) {
+        const afterHoursChange = ((stock.currentPrice - regularSessionClose) / regularSessionClose) * 100;
+        changes[ticker] = afterHoursChange;
+      }
+    });
+    
+    return changes;
+  }, [intradayData, stocksData, currentMarketPeriod]);
+
   // Get shares for a specific ticker
   const getSharesForTicker = (ticker: string): number => {
     const holding = portfolioHoldings.find(h => h.ticker === ticker);
@@ -534,6 +617,8 @@ export const HomeScreen: React.FC = () => {
                               dayIndex: idx,
                               position: 0,
                             }))}
+                            marketPeriod={currentMarketPeriod}
+                            preMarketChange={afterHoursChanges[ticker]}
                             onPress={() => handleStockClick(ticker)}
                           />
                         </View>
@@ -582,6 +667,8 @@ export const HomeScreen: React.FC = () => {
                               dayIndex: idx,
                               position: 0,
                             }))}
+                            marketPeriod={currentMarketPeriod}
+                            preMarketChange={afterHoursChanges[ticker]}
                             onPress={() => handleStockClick(ticker)}
                           />
                         </View>
