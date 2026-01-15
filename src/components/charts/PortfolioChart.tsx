@@ -622,26 +622,28 @@ export const PortfolioChart: React.FC<PortfolioChartProps> = ({
         </View>
       </View>
 
-      {/* Chart */}
-      <StockLineChart
-        data={portfolioData}
-        previousClose={previousClose}
-        currentPrice={currentValue}
-        priceChange={dayChange}
-        priceChangePercent={dayChangePercent}
-        futureCatalysts={catalystsWithLogos}
-        width={width}
-        height={height - 80} // Account for header
-        ticker="PORTFOLIO"
-        companyName="Your Portfolio"
-        defaultTimeRange={selectedTimeRange}
-        defaultFutureRange={selectedFutureRange}
-        onTimeRangeChange={handleTimeRangeChange}
-        onFutureRangeChange={handleFutureRangeChange}
-        onCrosshairChange={handleCrosshairChange}
-        hideHeader={true}
-        showTickerLogos={true}
-      />
+      {/* Chart with side padding */}
+      <View style={styles.chartContainer}>
+        <StockLineChart
+          data={portfolioData}
+          previousClose={previousClose}
+          currentPrice={currentValue}
+          priceChange={dayChange}
+          priceChangePercent={dayChangePercent}
+          futureCatalysts={catalystsWithLogos}
+          width={width ? width - 32 : undefined}
+          height={height - 80} // Account for header
+          ticker="PORTFOLIO"
+          companyName="Your Portfolio"
+          defaultTimeRange={selectedTimeRange}
+          defaultFutureRange={selectedFutureRange}
+          onTimeRangeChange={handleTimeRangeChange}
+          onFutureRangeChange={handleFutureRangeChange}
+          onCrosshairChange={handleCrosshairChange}
+          hideHeader={true}
+          showTickerLogos={true}
+        />
+      </View>
     </View>
   );
 };
@@ -680,6 +682,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 24,
     paddingBottom: 8,
+  },
+  chartContainer: {
+    paddingHorizontal: 16,
   },
   headerLeft: {
     flex: 1,
