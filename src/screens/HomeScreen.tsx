@@ -154,16 +154,34 @@ export const HomeScreen: React.FC = () => {
     return { count, label };
   }, [portfolioEvents, portfolioTimeRange]);
 
-  // Convert portfolio events to catalyst format
+  // Separate past and future events
+  const { pastPortfolioEvents, futurePortfolioEvents } = useMemo(() => {
+    const now = Date.now();
+    const past: MarketEvent[] = [];
+    const future: MarketEvent[] = [];
+    
+    portfolioEvents.forEach(event => {
+      const eventTime = new Date(event.actualDateTime || 0).getTime();
+      if (eventTime < now) {
+        past.push(event);
+      } else {
+        future.push(event);
+      }
+    });
+    
+    return { pastPortfolioEvents: past, futurePortfolioEvents: future };
+  }, [portfolioEvents]);
+
+  // Convert future portfolio events to catalyst format
   const portfolioCatalysts = useMemo(() => {
-    return portfolioEvents.map((event, idx) => ({
+    return futurePortfolioEvents.map((event, idx) => ({
       date: event.actualDateTime || '',
       timestamp: new Date(event.actualDateTime || Date.now()).getTime(),
       catalyst: event,
       dayIndex: idx,
       position: 0,
     }));
-  }, [portfolioEvents]);
+  }, [futurePortfolioEvents]);
 
   // Get shares for a specific ticker
   const getSharesForTicker = (ticker: string): number => {
@@ -457,6 +475,7 @@ export const HomeScreen: React.FC = () => {
             width={SCREEN_WIDTH}
             height={312}
             futureCatalysts={portfolioCatalysts}
+            pastEvents={pastPortfolioEvents}
             onCrosshairChange={handleCrosshairChange}
             onTimeRangeChange={handlePortfolioTimeRangeChange}
           />

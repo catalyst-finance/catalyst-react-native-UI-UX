@@ -614,7 +614,11 @@ export const StockLineChart: React.FC<StockLineChartProps> = ({
     const chartHeight = height - margin.top - margin.bottom;
 
     // Get trading day and market hours for time-based positioning
-    const tradingDay = getTradingDayFromData(filteredData);
+    // Convert timestamps to numbers for getTradingDayFromData
+    const dataWithNumericTimestamps = filteredData.map(d => ({
+      timestamp: typeof d.timestamp === 'string' ? new Date(d.timestamp).getTime() : d.timestamp
+    }));
+    const tradingDay = getTradingDayFromData(dataWithNumericTimestamps);
     const marketHours = getMarketHoursBounds(tradingDay);
 
     // Get all values for scaling (include OHLC if available)
@@ -787,7 +791,11 @@ export const StockLineChart: React.FC<StockLineChartProps> = ({
   const dataPointPositions = useMemo(() => {
     if (!filteredData || filteredData.length === 0) return [];
     
-    const tradingDay = getTradingDayFromData(filteredData);
+    // Convert timestamps to numbers for getTradingDayFromData
+    const dataWithNumericTimestamps = filteredData.map(d => ({
+      timestamp: typeof d.timestamp === 'string' ? new Date(d.timestamp).getTime() : d.timestamp
+    }));
+    const tradingDay = getTradingDayFromData(dataWithNumericTimestamps);
     const marketHours = getMarketHoursBounds(tradingDay);
     
     return filteredData.map((point, index) => {
@@ -1318,6 +1326,98 @@ export const StockLineChart: React.FC<StockLineChartProps> = ({
                 />
               </>
             )}
+            
+            {/* Past event dots - rendered on the price line */}
+            {pastEvents && pastEvents.length > 0 && filteredData.length > 0 && (() => {
+              const now = Date.now();
+              const oldestTimestamp = filteredData[0].timestamp;
+              const oldestTime = typeof oldestTimestamp === 'string' 
+                ? new Date(oldestTimestamp).getTime() 
+                : oldestTimestamp;
+              const totalDuration = now - oldestTime;
+              
+              const margin = { top: 40, bottom: 20 };
+              const chartHeight = height - margin.top - margin.bottom;
+              const { minY, valueRange } = chartData;
+              
+              // Sort by dot size descending so smaller dots render on top
+              const eventsWithPositions = pastEvents
+                .map((event, index) => {
+                  const eventTimestamp = event.actualDateTime 
+                    ? new Date(event.actualDateTime).getTime() 
+                    : 0;
+                  
+                  // Check if event is within the visible time range
+                  if (eventTimestamp < oldestTime || eventTimestamp > now) {
+                    return null;
+                  }
+                  
+                  // Calculate X position as percentage
+                  const timeFromOldest = eventTimestamp - oldestTime;
+                  const xPercent = (timeFromOldest / totalDuration) * 100;
+                  
+                  // Find the closest data point to get Y position
+                  let closestDataPoint = filteredData[0];
+                  let minTimeDiff = Infinity;
+                  for (const point of filteredData) {
+                    const pointTime = typeof point.timestamp === 'string' 
+                      ? new Date(point.timestamp).getTime() 
+                      : point.timestamp;
+                    const timeDiff = Math.abs(pointTime - eventTimestamp);
+                    if (timeDiff < minTimeDiff) {
+                      minTimeDiff = timeDiff;
+                      closestDataPoint = point;
+                    }
+                  }
+                  
+                  // Calculate Y position in pixels using the same formula as the chart
+                  const yPosition = margin.top + chartHeight - ((closestDataPoint.value - minY) / valueRange) * chartHeight;
+                  
+                  // Dot size based on index (varying sizes)
+                  const baseDotSizes = [12, 14, 16, 18, 20];
+                  const dotSize = baseDotSizes[index % baseDotSizes.length];
+                  
+                  return { event, index, xPercent, yPosition, dotSize };
+                })
+                .filter(Boolean)
+                .sort((a, b) => (b?.dotSize || 0) - (a?.dotSize || 0)); // Larger dots first
+              
+              return eventsWithPositions.map((item) => {
+                if (!item) return null;
+                const { event, index, xPercent, yPosition, dotSize } = item;
+                const eventColor = getEventTypeHexColor(event.type);
+                const dotBorderColor = isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.3)';
+                const halfDotSize = dotSize / 2;
+                
+                return (
+                  <View
+                    key={`past-event-${event.id || index}`}
+                    style={{
+                      position: 'absolute',
+                      left: `${xPercent}%`,
+                      top: yPosition - halfDotSize,
+                      marginLeft: -halfDotSize,
+                      width: dotSize,
+                      height: dotSize,
+                      borderRadius: halfDotSize,
+                      backgroundColor: eventColor,
+                      borderWidth: 1.5,
+                      borderColor: dotBorderColor,
+                      zIndex: 10,
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                    }}
+                    pointerEvents="none"
+                  >
+                    <Ionicons
+                      name={getEventIcon(event.type)}
+                      size={dotSize * 0.5}
+                      color="#FFFFFF"
+                    />
+                  </View>
+                );
+              });
+            })()}
           </View>
           
           {/* Continuous upcoming events line - spans from current price dot to end */}

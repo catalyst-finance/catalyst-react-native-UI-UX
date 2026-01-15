@@ -38,6 +38,7 @@ interface PortfolioChartProps {
   defaultTimeRange?: TimeRange;
   onTimeRangeChange?: (range: TimeRange) => void;
   futureCatalysts?: FutureCatalyst[];
+  pastEvents?: any[]; // Past events to show on the chart
   onCrosshairChange?: (isActive: boolean) => void;
 }
 
@@ -57,6 +58,7 @@ export const PortfolioChart: React.FC<PortfolioChartProps> = ({
   defaultTimeRange = '1D',
   onTimeRangeChange,
   futureCatalysts = [],
+  pastEvents = [],
   onCrosshairChange,
 }) => {
   const { isDark } = useTheme();
@@ -631,6 +633,7 @@ export const PortfolioChart: React.FC<PortfolioChartProps> = ({
           priceChange={dayChange}
           priceChangePercent={dayChangePercent}
           futureCatalysts={catalystsWithLogos}
+          pastEvents={pastEvents}
           width={width ? width - 32 : undefined}
           height={height - 80} // Account for header
           ticker="PORTFOLIO"

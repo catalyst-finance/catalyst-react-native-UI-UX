@@ -284,15 +284,28 @@ export const StockDetailScreen: React.FC<StockDetailScreenProps> = ({ ticker, on
     onClose();
   };
 
-  // Convert events to catalyst format for chart
-  const chartCatalysts = useMemo(() => {
-    return events.map((event, idx) => ({
-      date: event.actualDateTime || '',
-      timestamp: new Date(event.actualDateTime || Date.now()).getTime(),
-      catalyst: event,
-      dayIndex: idx,
-      position: 0,
-    }));
+  // Convert events to catalyst format for chart - separate past and future
+  const { chartCatalysts, pastChartEvents } = useMemo(() => {
+    const now = Date.now();
+    const past: MarketEvent[] = [];
+    const future: { date: string; timestamp: number; catalyst: MarketEvent; dayIndex: number; position: number }[] = [];
+    
+    events.forEach((event, idx) => {
+      const eventTime = new Date(event.actualDateTime || 0).getTime();
+      if (eventTime < now) {
+        past.push(event);
+      } else {
+        future.push({
+          date: event.actualDateTime || '',
+          timestamp: eventTime,
+          catalyst: event,
+          dayIndex: idx,
+          position: 0,
+        });
+      }
+    });
+    
+    return { chartCatalysts: future, pastChartEvents: past };
   }, [events]);
 
   // Render loading state
@@ -383,6 +396,7 @@ export const StockDetailScreen: React.FC<StockDetailScreenProps> = ({ ticker, on
             height={400}
             hideHeader={false}
             futureCatalysts={chartCatalysts}
+            pastEvents={pastChartEvents}
           />
         </View>
 

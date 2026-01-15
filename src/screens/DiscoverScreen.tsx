@@ -647,6 +647,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 16,
     fontWeight: '600',
+    marginBottom: 12,
   },
   popularSearches: {
     flexDirection: 'row',
