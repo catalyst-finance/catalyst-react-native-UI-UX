@@ -463,7 +463,7 @@ export const HomeScreen: React.FC = () => {
         )}
 
         {/* Tab Navigation */}
-        <View style={[styles.tabContainer, { borderBottomColor: themeColors.border }]}>
+        <View style={[styles.tabContainer, { borderTopColor: themeColors.border }]}>
           {renderTabButton('news', 'News')}
           {renderTabButton('focus', 'Focus Stocks')}
           {renderTabButton('calendar', 'Calendar')}
@@ -671,7 +671,8 @@ const styles = StyleSheet.create({
   tabContainer: {
     flexDirection: 'row',
     marginBottom: 16,
-    borderBottomWidth: 1,
+    borderTopWidth: 1,
+    paddingTop: 16,
     paddingHorizontal: 16,
   },
   tabButton: {
