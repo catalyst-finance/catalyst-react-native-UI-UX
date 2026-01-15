@@ -346,11 +346,9 @@ export const DiscoverScreen: React.FC = () => {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: themeColors.background }]} edges={['top']}>
+    <SafeAreaView style={[styles.container, { backgroundColor: themeColors.background }]} edges={['bottom']}>
       {/* Header */}
       <View style={[styles.header, { borderBottomColor: themeColors.border }]}>
-        <Text style={[styles.headerTitle, { color: themeColors.foreground }]}>Discover</Text>
-
         {/* Search Bar */}
         <View style={[styles.searchContainer, { backgroundColor: themeColors.muted }]}>
           <Ionicons name="search" size={16} color={themeColors.mutedForeground} />
@@ -597,12 +595,6 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
     borderBottomWidth: 1,
   },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    textAlign: 'center',
-    marginBottom: 16,
-  },
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -804,6 +796,7 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 4,
     marginBottom: 4,
+    alignSelf: 'flex-start',
   },
   tickerText: {
     color: '#ffffff',
