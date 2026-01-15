@@ -450,18 +450,16 @@ export const HomeScreen: React.FC = () => {
           />
         }
       >
-        {/* Portfolio Chart - Above tabs, with side margins matching mini charts */}
+        {/* Portfolio Chart - Above tabs, full width */}
         {holdings.length > 0 && (
-          <View style={styles.portfolioChartContainer}>
-            <PortfolioChart
-              holdings={holdings}
-              width={SCREEN_WIDTH - 32}
-              height={312}
-              futureCatalysts={portfolioCatalysts}
-              onCrosshairChange={handleCrosshairChange}
-              onTimeRangeChange={handlePortfolioTimeRangeChange}
-            />
-          </View>
+          <PortfolioChart
+            holdings={holdings}
+            width={SCREEN_WIDTH}
+            height={312}
+            futureCatalysts={portfolioCatalysts}
+            onCrosshairChange={handleCrosshairChange}
+            onTimeRangeChange={handlePortfolioTimeRangeChange}
+          />
         )}
 
         {/* Tab Navigation */}
@@ -695,9 +693,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   tabContent: {
-    paddingHorizontal: 16,
-  },
-  portfolioChartContainer: {
     paddingHorizontal: 16,
   },
   section: {
