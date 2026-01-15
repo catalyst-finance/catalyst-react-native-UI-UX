@@ -34,6 +34,12 @@ export const RootNavigator: React.FC = () => {
             backgroundColor: backgroundColor,
             borderTopColor: borderColor,
             borderTopWidth: 1,
+            paddingBottom: 0,
+            height: 60,
+          },
+          tabBarItemStyle: {
+            paddingBottom: 0,
+            paddingTop: 0,
           },
           tabBarActiveTintColor: activeTintColor,
           tabBarInactiveTintColor: inactiveTintColor,
