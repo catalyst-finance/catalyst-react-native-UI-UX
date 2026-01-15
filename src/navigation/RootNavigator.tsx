@@ -45,25 +45,25 @@ export const RootNavigator: React.FC = () => {
         }}
       >
         <Tab.Screen
-          name="Copilot"
-          component={CopilotScreen}
-          options={{
-            headerShown: false,
-            tabBarIcon: ({ color, size, focused }) => (
-              <View style={{ paddingTop: 2 }}>
-                <Ionicons name={focused ? "sparkles" : "sparkles"} size={size} color={color} />
-              </View>
-            ),
-          }}
-        />
-        <Tab.Screen
           name="Timeline"
           component={HomeScreen}
           options={{
             headerShown: false,
             tabBarIcon: ({ color, size, focused }) => (
-              <View style={{ paddingTop: 2 }}>
+              <View style={{ paddingTop: 8, paddingBottom: 8 }}>
                 <Ionicons name={focused ? "home" : "home"} size={size} color={color} />
+              </View>
+            ),
+          }}
+        />
+        <Tab.Screen
+          name="Copilot"
+          component={CopilotScreen}
+          options={{
+            headerShown: false,
+            tabBarIcon: ({ color, size, focused }) => (
+              <View style={{ paddingTop: 8, paddingBottom: 8 }}>
+                <Ionicons name={focused ? "sparkles" : "sparkles"} size={size} color={color} />
               </View>
             ),
           }}
@@ -73,7 +73,7 @@ export const RootNavigator: React.FC = () => {
           component={DiscoverScreen}
           options={{
             tabBarIcon: ({ color, size, focused }) => (
-              <View style={{ paddingTop: 2 }}>
+              <View style={{ paddingTop: 8, paddingBottom: 8 }}>
                 <Ionicons name={focused ? "search" : "search"} size={size} color={color} />
               </View>
             ),
@@ -84,7 +84,7 @@ export const RootNavigator: React.FC = () => {
           component={ProfileScreen}
           options={{
             tabBarIcon: ({ color, size, focused }) => (
-              <View style={{ paddingTop: 2 }}>
+              <View style={{ paddingTop: 8, paddingBottom: 8 }}>
                 <Ionicons name={focused ? "person" : "person"} size={size} color={color} />
               </View>
             ),
