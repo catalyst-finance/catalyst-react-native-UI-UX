@@ -364,6 +364,7 @@ export function useStreamingChat(options: UseStreamingChatOptions = {}): UseStre
   const lastMessageRef = useRef<string>('');
   const reconnectAttemptsRef = useRef<number>(0);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isUnmountingRef = useRef<boolean>(false);
   const collectedDataRef = useRef<{
     thinking: ThinkingStep[];
     content: string;
@@ -416,8 +417,17 @@ export function useStreamingChat(options: UseStreamingChatOptions = {}): UseStre
   }, []);
 
   const connect = useCallback(() => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      return; // Already connected
+    // Prevent multiple simultaneous connections
+    if (wsRef.current?.readyState === WebSocket.OPEN || wsRef.current?.readyState === WebSocket.CONNECTING) {
+      console.log('[WS] Already connected or connecting, skipping');
+      return;
+    }
+
+    // Clear any existing connection first
+    if (wsRef.current) {
+      console.log('[WS] Closing existing connection before reconnecting');
+      wsRef.current.close();
+      wsRef.current = null;
     }
 
     console.log('[WS] Connecting to', WS_ENDPOINT);
@@ -567,6 +577,12 @@ export function useStreamingChat(options: UseStreamingChatOptions = {}): UseStre
       setIsConnected(false);
       wsRef.current = null;
 
+      // Don't attempt reconnection if component is unmounting
+      if (isUnmountingRef.current) {
+        console.log('[WS] Component unmounting, skipping reconnection');
+        return;
+      }
+
       // Attempt reconnection
       if (reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
         reconnectAttemptsRef.current++;
@@ -585,11 +601,16 @@ export function useStreamingChat(options: UseStreamingChatOptions = {}): UseStre
     connect();
 
     return () => {
+      console.log('[WS] Component unmounting, cleaning up');
+      isUnmountingRef.current = true;
+      
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
       }
       if (wsRef.current) {
         wsRef.current.close();
+        wsRef.current = null;
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
