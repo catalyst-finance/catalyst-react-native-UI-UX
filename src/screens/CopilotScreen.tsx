@@ -78,10 +78,10 @@ export const CopilotScreen: React.FC = () => {
   }, []);
 
   const handleNewConversation = useCallback(() => {
-    const newId = startNewConversation();
-    setCurrentConversationId(newId);
+    // Set to null first to trigger message clearing, then the component will generate a new ID
+    setCurrentConversationId(null);
     setShowHistory(false);
-  }, [startNewConversation]);
+  }, []);
 
   const handleDeleteConversation = useCallback((conversationId: string) => {
     deleteConversation(conversationId);

@@ -580,34 +580,8 @@ export function useStreamingChat(options: UseStreamingChatOptions = {}): UseStre
     };
   }, []); // Empty deps - function is stable
 
-  // Connect on mount and load persisted messages
+  // Connect on mount
   useEffect(() => {
-    // TEMPORARY: Clear storage for testing markdown fix
-    // clearStoredMessages().then(() => {
-    //   console.log('[Storage] Cleared messages for testing');
-    // });
-    
-    // Load messages from storage
-    loadMessages().then(loadedMessages => {
-      if (loadedMessages.length > 0) {
-        console.log(`[Storage] Loaded ${loadedMessages.length} messages from storage`);
-        // Debug: log the content of the first assistant message
-        const assistantMsg = loadedMessages.find(m => m.role === 'assistant');
-        if (assistantMsg) {
-          console.log('[Storage] First assistant message content:', assistantMsg.content?.substring(0, 300));
-          console.log('[Storage] First assistant message blocks:', assistantMsg.contentBlocks?.length || 0);
-          if (assistantMsg.contentBlocks && assistantMsg.contentBlocks.length > 0) {
-            assistantMsg.contentBlocks.forEach((block, i) => {
-              if (block.type === 'text') {
-                console.log(`[Storage] Block ${i} content:`, block.content?.substring(0, 100));
-              }
-            });
-          }
-        }
-        setMessages(loadedMessages);
-      }
-    });
-
     connect();
 
     return () => {
@@ -621,12 +595,7 @@ export function useStreamingChat(options: UseStreamingChatOptions = {}): UseStre
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only connect once on mount
 
-  // Save messages whenever they change
-  useEffect(() => {
-    if (messages.length > 0) {
-      saveMessages(messages);
-    }
-  }, [messages]);
+  // Note: Message persistence is handled by useConversationHistory in CatalystCopilot
 
   const sendMessage = useCallback(async (content: string) => {
     if (!content.trim() || isStreaming) return;
@@ -693,7 +662,7 @@ export function useStreamingChat(options: UseStreamingChatOptions = {}): UseStre
 
   }, [messages, isStreaming, selectedTickers, onError]);
 
-  const clearMessages = useCallback(async () => {
+  const clearMessages = useCallback(() => {
     setMessages([]);
     setStreamingState({
       isStreaming: false,
@@ -712,8 +681,6 @@ export function useStreamingChat(options: UseStreamingChatOptions = {}): UseStre
       eventData: {},
       blockIdCounter: 0,
     };
-    // Clear from storage
-    await clearStoredMessages();
   }, []);
 
   const retryLastMessage = useCallback(async () => {
