@@ -1,0 +1,7 @@
+{
+  "importMap": "",
+  "compilerOptions": {
+    "allowJs": true,
+    "lib": ["deno.worker", "dom"]
+  }
+}

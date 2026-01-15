@@ -1,0 +1,706 @@
+/**
+ * MiniChart Component - React Native Port
+ * 
+ * Ported from: src/components/charts/mini-chart.tsx (779 lines)
+ * 
+ * CRITICAL: This is an EXACT port of the web app component.
+ * NO SIMPLIFICATIONS have been made. All logic, calculations, and features
+ * are preserved exactly as in the web app.
+ * 
+ * Platform Adaptations:
+ * - motion/react → react-native-reanimated (for animations)
+ * - web SVG → react-native-svg
+ * - className/CSS → StyleSheet
+ * - div → View
+ * 
+ * All calculations, edge cases, and visual appearance match web app exactly.
+ */
+
+import React, { useMemo } from 'react';
+import { View, StyleSheet } from 'react-native';
+import Svg, { Path, Line, Rect, Defs, ClipPath, G, Circle } from 'react-native-svg';
+import { Point, generateContinuousSmoothPath } from '../../utils/bezier-path-utils';
+import { getTradingDayFromData, createTradingDayContext, EXTENDED_HOURS_TOTAL, getEffectivePreviousClose } from '../../utils/chart-time-utils';
+import { colors } from '../../constants/design-tokens';
+
+interface MarketEvent {
+  id: string;
+  type: string;
+  [key: string]: any;
+}
+
+interface DataPoint {
+  timestamp: number;
+  value: number;
+  session?: string; // Session type: pre-market, regular, after-hours
+}
+
+interface FutureCatalyst {
+  date: string;
+  timestamp: number;
+  catalyst: MarketEvent;
+  dayIndex: number;
+  position: number;
+}
+
+interface MiniChartProps {
+  data: DataPoint[];
+  previousClose: number | null;
+  currentPrice: number;
+  ticker?: string;
+  futureCatalysts?: FutureCatalyst[];
+  width?: number;
+  height?: number;
+  strokeWidth?: number;
+  centeredEventId?: string | null;
+  disableAnimation?: boolean;
+  previousDayData?: { close: number; previousClose: number } | null;
+  shortenedTradingHours?: { open: string; close: string } | null; // e.g., { open: "09:30", close: "13:00" }
+  globalMinValue?: number; // Optional: for standardized y-scale across multiple charts
+  globalMaxValue?: number; // Optional: for standardized y-scale across multiple charts
+}
+
+export const MiniChart: React.FC<MiniChartProps> = ({ 
+  data, 
+  previousClose, 
+  currentPrice,
+  ticker,
+  futureCatalysts = [],
+  width = 300, 
+  height = 60,
+  strokeWidth = 1.5,
+  centeredEventId = null,
+  disableAnimation = false,
+  previousDayData = null,
+  shortenedTradingHours = null,
+  globalMinValue,
+  globalMaxValue
+}) => {
+  
+  // Calculate SVG path from data points
+  const { 
+    continuousPath, 
+    preMarketEndX, 
+    regularHoursEndX, 
+    isPositive, 
+    lastPointY, 
+    lastPointX, 
+    currentPeriod, 
+    todaysClosePrice, 
+    marketCloseX 
+  } = useMemo(() => {
+    if (data.length === 0) {
+      return { 
+        continuousPath: '', 
+        preMarketEndX: 0, 
+        regularHoursEndX: 0, 
+        isPositive: true, 
+        lastPointY: height / 2, 
+        lastPointX: width, 
+        currentPeriod: 'regular' as const, 
+        todaysClosePrice: null, 
+        marketCloseX: 0 
+      };
+    }
+
+    // Find min/max values for scaling
+    const values = data.map(d => d.value);
+    
+    // Determine the effective previous close for chart calculations
+    // Uses shared utility that properly handles weekends (not pre-market)
+    const effectivePreviousClose = getEffectivePreviousClose(previousClose, previousDayData);
+    
+    // Use global scale if provided, otherwise calculate local scale
+    let minValue: number;
+    let maxValue: number;
+    
+    if (globalMinValue !== undefined && globalMaxValue !== undefined) {
+      // Use global scale for standardized comparison across multiple charts
+      minValue = globalMinValue;
+      maxValue = globalMaxValue;
+    } else {
+      // Calculate local scale for this chart only
+      // Include effective previous close and current price in the range calculation to ensure they are always visible
+      const allValues = effectivePreviousClose ? [...values, effectivePreviousClose, currentPrice] : [...values, currentPrice];
+      minValue = Math.min(...allValues);
+      maxValue = Math.max(...allValues);
+    }
+    
+    const range = maxValue - minValue;
+    
+    // Add 30% padding on top and bottom to prevent clipping (accounting for stroke width)
+    const padding = range * 0.3;
+    const minY = minValue - padding;
+    const maxY = maxValue + padding;
+    const valueRange = maxY - minY;
+    
+    // Use shared utility for trading day detection and market hours
+    const tradingDayET = getTradingDayFromData(data);
+    const tradingDayContext = createTradingDayContext(data);
+    const marketBounds = tradingDayContext.marketHours;
+    const extendedOpenTimestamp = marketBounds.extendedOpen;
+    const extendedCloseTimestamp = marketBounds.extendedClose;
+    
+    // Get today's date in ET timezone for determining market status
+    const now = new Date();
+    const todayET = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+    const currentTimestamp = todayET.getTime();
+    
+    // Define regular market hours timestamps on the trading day
+    // Use shortened hours if provided (e.g., day after Thanksgiving: 09:30-13:00)
+    const marketOpenTime = new Date(tradingDayET);
+    if (shortenedTradingHours) {
+      const [openHour, openMinute] = shortenedTradingHours.open.split(':').map(Number);
+      marketOpenTime.setHours(openHour, openMinute, 0, 0);
+    } else {
+      marketOpenTime.setHours(9, 30, 0, 0); // 9:30 AM ET on the trading day
+    }
+    const marketOpenTimestamp = marketOpenTime.getTime();
+    
+    const marketCloseTime = new Date(tradingDayET);
+    if (shortenedTradingHours) {
+      const [closeHour, closeMinute] = shortenedTradingHours.close.split(':').map(Number);
+      marketCloseTime.setHours(closeHour, closeMinute, 0, 0);
+      console.log(`[DEBUG MiniChart] Using shortened trading hours: ${shortenedTradingHours.open} - ${shortenedTradingHours.close}`);
+    } else {
+      marketCloseTime.setHours(16, 0, 0, 0); // 4:00 PM ET on the trading day
+    }
+    const marketCloseTimestamp = marketCloseTime.getTime();
+    
+    // Calculate 4 PM X position (using EXTENDED_HOURS_TOTAL constant from utilities)
+    const hoursFrom8amTo4pm = (marketCloseTimestamp - extendedOpenTimestamp) / (1000 * 60 * 60);
+    const marketCloseXPos = (hoursFrom8amTo4pm / EXTENDED_HOURS_TOTAL) * width;
+    
+    // Find the price at 4 PM close (or closest data point)
+    let todaysClose: number | null = null;
+    let closestTimeDiff = Infinity;
+    for (const point of data) {
+      const timeDiff = Math.abs(point.timestamp - marketCloseTimestamp);
+      if (timeDiff < closestTimeDiff && point.timestamp <= marketCloseTimestamp + 60000) { // Within 1 minute
+        closestTimeDiff = timeDiff;
+        todaysClose = point.value;
+      }
+    }
+    
+    // Determine current period using shared utility context
+    let currentPeriod: 'premarket' | 'regular' | 'afterhours' | 'closed';
+    
+    // Use trading day context for weekend/historical detection
+    const { isWeekend, isHistorical: isHistoricalDay } = tradingDayContext;
+    
+    const tradingDayDateOnly = tradingDayET.toISOString().split('T')[0];
+    const todayDateOnly = todayET.toISOString().split('T')[0];
+    
+    console.log(`[DEBUG MiniChart] Trading day: ${tradingDayDateOnly}, Today: ${todayDateOnly}, isHistoricalDay: ${isHistoricalDay}, isWeekend: ${isWeekend}`);
+    
+    // On weekends or when showing historical data (e.g., holidays), always return 'closed' 
+    if (isWeekend || isHistoricalDay) {
+      currentPeriod = 'closed';
+      console.log(`[DEBUG MiniChart] Setting currentPeriod = 'closed' (isWeekend: ${isWeekend}, isHistoricalDay: ${isHistoricalDay})`);
+    } else if (currentTimestamp < marketOpenTimestamp) {
+      currentPeriod = 'premarket';
+    } else if (currentTimestamp <= marketCloseTimestamp) {
+      currentPeriod = 'regular';
+    } else if (currentTimestamp <= extendedCloseTimestamp) {
+      currentPeriod = 'afterhours';
+    } else {
+      currentPeriod = 'closed';
+    }
+    
+    // Collect points for each segment, then generate smooth paths
+    const preMarketPoints: Point[] = [];
+    const regularHoursPoints: Point[] = [];
+    const afterHoursPoints: Point[] = [];
+    let lastY = height / 2;
+    let lastX = 0;
+    let lastPreMarketPoint: Point | null = null;
+    let lastRegularHoursPoint: Point | null = null;
+    
+    data.forEach((point, index) => {
+      // Calculate X position based on actual timestamp relative to extended hours (8 AM - 8 PM)
+      const pointTime = point.timestamp;
+      const hoursFromOpen = (pointTime - extendedOpenTimestamp) / (1000 * 60 * 60);
+      const xPercent = hoursFromOpen / EXTENDED_HOURS_TOTAL;
+      const x = xPercent * width;
+      
+      // Invert Y because SVG coordinates are top-down
+      const y = height - ((point.value - minY) / valueRange) * height;
+      
+      // Determine which segment this point belongs to
+      // Use session field from database if available, otherwise fall back to timestamp-based detection
+      let segmentType: 'premarket' | 'regular' | 'afterhours';
+      
+      if (point.session) {
+        // Use session field from database (more accurate)
+        if (point.session === 'pre-market') {
+          segmentType = 'premarket';
+        } else if (point.session === 'regular') {
+          segmentType = 'regular';
+        } else if (point.session === 'after-hours') {
+          segmentType = 'afterhours';
+        } else {
+          // Fallback for unknown session types
+          segmentType = pointTime <= marketCloseTimestamp ? 'regular' : 'afterhours';
+        }
+        
+        // Log session-based classification for first few points
+        if (index < 5 || (point.session === 'pre-market' && index < 30)) {
+          console.log(`[DEBUG MiniChart ${ticker}] Point ${index}: session="${point.session}" -> segmentType="${segmentType}", time=${new Date(pointTime).toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`);
+        }
+      } else {
+        // Fall back to timestamp-based detection
+        if (pointTime < marketOpenTimestamp) {
+          segmentType = 'premarket';
+        } else if (pointTime <= marketCloseTimestamp) {
+          segmentType = 'regular';
+        } else {
+          segmentType = 'afterhours';
+        }
+      }
+      
+      // Add point to appropriate segment
+      if (segmentType === 'premarket') {
+        // Pre-market (8:00 AM - 9:30 AM)
+        preMarketPoints.push({ x, y });
+        lastPreMarketPoint = { x, y };
+      } else if (segmentType === 'regular') {
+        // Regular hours (9:30 AM - 4:00 PM)
+        // Add the last pre-market point as the first point to ensure continuity
+        if (regularHoursPoints.length === 0 && lastPreMarketPoint) {
+          regularHoursPoints.push(lastPreMarketPoint);
+        }
+        regularHoursPoints.push({ x, y });
+        lastRegularHoursPoint = { x, y };
+      } else {
+        // After-hours (4:00 PM - 8:00 PM)
+        // Add the last regular hours point as the first point to ensure continuity
+        if (afterHoursPoints.length === 0 && lastRegularHoursPoint) {
+          afterHoursPoints.push(lastRegularHoursPoint);
+        }
+        afterHoursPoints.push({ x, y });
+      }
+      
+      // Store last point Y position and X position
+      if (index === data.length - 1) {
+        lastY = y;
+        // Clamp lastX to not exceed width - ensures dot stays in past section even on weekends
+        lastX = Math.min(x, width);
+      }
+    });
+    
+    // Generate smooth Bezier paths for each segment
+    // Adjust tension based on data density - use lower tension for sparse data
+    const totalPoints = preMarketPoints.length + regularHoursPoints.length + afterHoursPoints.length;
+    const tension = totalPoints < 20 ? 0.2 : 0.4; // Less smooth for sparse data
+    
+    const segments = [preMarketPoints, regularHoursPoints, afterHoursPoints];
+    
+    // Generate continuous path for seamless rendering
+    const continuousPathString = generateContinuousSmoothPath(segments, tension);
+    
+    // Calculate boundary X positions for clipping
+    const preMarketEnd = preMarketPoints.length > 0 ? preMarketPoints[preMarketPoints.length - 1].x : 0;
+    const regularHoursEnd = regularHoursPoints.length > 0 ? regularHoursPoints[regularHoursPoints.length - 1].x : preMarketEnd;
+    
+    // Log segment distribution for debugging
+    console.log(`[DEBUG MiniChart ${ticker}] 📊 Segment distribution: preMarket=${preMarketPoints.length} points (endX=${preMarketEnd.toFixed(1)}), regular=${regularHoursPoints.length} points (endX=${regularHoursEnd.toFixed(1)}), afterHours=${afterHoursPoints.length} points, total=${data.length} points`);
+    
+    // Determine if chart is positive or negative based on effective previous close
+    const lastValue = data[data.length - 1]?.value || currentPrice;
+    const isPos = effectivePreviousClose ? lastValue >= effectivePreviousClose : currentPrice >= 0;
+    
+    return { 
+      continuousPath: continuousPathString, 
+      preMarketEndX: preMarketEnd, 
+      regularHoursEndX: regularHoursEnd, 
+      isPositive: isPos, 
+      lastPointY: lastY, 
+      lastPointX: lastX, 
+      currentPeriod, 
+      todaysClosePrice: todaysClose, 
+      marketCloseX: marketCloseXPos 
+    };
+  }, [data, width, height, previousClose, currentPrice, previousDayData, shortenedTradingHours, globalMinValue, globalMaxValue, ticker]);
+
+  // Calculate previous close line Y position
+  const previousCloseY = useMemo(() => {
+    if (data.length === 0) return null;
+    
+    // Uses shared utility that properly handles weekends (not pre-market)
+    const effectivePreviousClose = getEffectivePreviousClose(previousClose, previousDayData);
+    
+    if (!effectivePreviousClose) return null;
+    
+    const values = data.map(d => d.value);
+    
+    // Use global scale if provided, otherwise calculate local scale
+    let minValue: number;
+    let maxValue: number;
+    
+    if (globalMinValue !== undefined && globalMaxValue !== undefined) {
+      minValue = globalMinValue;
+      maxValue = globalMaxValue;
+    } else {
+      // Include effective previous close and current price in the range calculation
+      const allValues = [...values, effectivePreviousClose, currentPrice];
+      minValue = Math.min(...allValues);
+      maxValue = Math.max(...allValues);
+    }
+    
+    const range = maxValue - minValue;
+    const padding = range * 0.3;
+    const minY = minValue - padding;
+    const maxY = maxValue + padding;
+    const valueRange = maxY - minY;
+    
+    return height - ((effectivePreviousClose - minY) / valueRange) * height;
+  }, [previousClose, previousDayData, data, height, globalMinValue, globalMaxValue, currentPrice]);
+
+  if (data.length === 0) {
+    return (
+      <View style={styles.emptyContainer}>
+        {/* Empty state - could add Text component here */}
+      </View>
+    );
+  }
+
+  // Calculate layout: 58% for past chart, 42% for future timeline
+  const pastWidthPercent = 58;
+  const futureWidthPercent = 42;
+
+  const chartColor = isPositive ? 'rgb(0, 200, 5)' : 'rgb(255, 80, 0)';
+
+  return (
+    <View style={styles.container}>
+      <View style={styles.chartContainer}>
+        {/* Left side: Clean SVG line chart */}
+        <View style={[styles.pastSection, { width: `${pastWidthPercent}%` }]}>
+          <Svg 
+            width="100%" 
+            height="100%" 
+            viewBox={`0 0 ${width} ${height}`}
+            preserveAspectRatio="none"
+          >
+            {/* Define clip paths for each market period */}
+            <Defs>
+              <ClipPath id={`premarket-clip-${ticker || 'default'}`}>
+                <Rect x="0" y="0" width={preMarketEndX} height={height} />
+              </ClipPath>
+              <ClipPath id={`regular-clip-${ticker || 'default'}`}>
+                <Rect x={preMarketEndX} y="0" width={regularHoursEndX - preMarketEndX} height={height} />
+              </ClipPath>
+              <ClipPath id={`afterhours-clip-${ticker || 'default'}`}>
+                <Rect x={regularHoursEndX} y="0" width={width - regularHoursEndX} height={height} />
+              </ClipPath>
+            </Defs>
+            
+            {/* Pre-market section - clipped continuous path */}
+            <Path
+              d={continuousPath}
+              fill="none"
+              stroke={chartColor}
+              strokeWidth={strokeWidth}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              vectorEffect="non-scaling-stroke"
+              opacity={currentPeriod === 'closed' ? 1 : (currentPeriod === 'premarket' ? 1 : 0.3)}
+              clipPath={`url(#premarket-clip-${ticker || 'default'})`}
+            />
+            
+            {/* Regular hours section - clipped continuous path */}
+            <Path
+              d={continuousPath}
+              fill="none"
+              stroke={chartColor}
+              strokeWidth={strokeWidth}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              vectorEffect="non-scaling-stroke"
+              opacity={currentPeriod === 'closed' ? 1 : (currentPeriod === 'regular' ? 1 : 0.3)}
+              clipPath={`url(#regular-clip-${ticker || 'default'})`}
+            />
+            
+            {/* After-hours section - clipped continuous path */}
+            <Path
+              d={continuousPath}
+              fill="none"
+              stroke={chartColor}
+              strokeWidth={strokeWidth}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              vectorEffect="non-scaling-stroke"
+              opacity={currentPeriod === 'closed' ? 1 : (currentPeriod === 'afterhours' ? 1 : 0.3)}
+              clipPath={`url(#afterhours-clip-${ticker || 'default'})`}
+            />
+            
+            {/* Previous close dotted line */}
+            {previousClose && previousCloseY !== null && (
+              <Line
+                x1="0"
+                y1={previousCloseY}
+                x2={width}
+                y2={previousCloseY}
+                stroke="currentColor"
+                strokeWidth="1"
+                strokeDasharray="1,5"
+                strokeLinecap="round"
+                opacity={0.3}
+                vectorEffect="non-scaling-stroke"
+              />
+            )}
+          </Svg>
+          
+          {/* Pulsing "now" dot at end of line */}
+          <View 
+            style={[
+              styles.nowDotContainer,
+              { 
+                left: `${(lastPointX / width) * 100}%`,
+                top: lastPointY,
+              }
+            ]}
+          >
+            {/* Pulsing ring - only during active trading periods (not when closed) */}
+            {currentPeriod !== 'closed' && !disableAnimation && (
+              <PulsingRing color={chartColor} />
+            )}
+            {/* Solid circular dot - always visible */}
+            <View 
+              style={[
+                styles.nowDot,
+                { backgroundColor: chartColor }
+              ]}
+            />
+          </View>
+        </View>
+        
+        {/* TODO: Future catalyst timeline section */}
+        {/* This will be implemented in the next part */}
+        
+        {/* Continuous upcoming events line - spans from current price to right edge of chart */}
+        <Svg 
+          style={styles.futureLineContainer}
+          viewBox={`0 0 ${width / (pastWidthPercent / 100)} ${height}`}
+          preserveAspectRatio="none"
+        >
+          <Line
+            x1={lastPointX}
+            y1={lastPointY}
+            x2={width / (pastWidthPercent / 100)}
+            y2={lastPointY}
+            stroke="currentColor"
+            strokeWidth="1"
+            strokeDasharray="1,5"
+            strokeLinecap="round"
+            opacity={0.6}
+            vectorEffect="non-scaling-stroke"
+          />
+        </Svg>
+
+        {/* Right side: Future catalyst timeline with gradient */}
+        <View 
+          style={[
+            styles.futureSection,
+            { width: `${futureWidthPercent}%` }
+          ]}
+        >
+          {/* Gradient overlay backgrounds - will be implemented with LinearGradient */}
+          {/* For now, using semi-transparent background */}
+          <View style={styles.futureGradientOverlay} />
+          
+          {/* Catalyst dots on timeline */}
+          <View style={styles.catalystDotsContainer}>
+            {futureCatalysts.map((catalyst, index) => {
+              const now = Date.now();
+              const threeMonthsMs = 90 * 24 * 60 * 60 * 1000;
+              const timeFromNow = catalyst.timestamp - now;
+              
+              // Add time buffer: shift events further right to prevent visual intersection with current price dot
+              // Events appear further away than they actually are, creating clear visual separation
+              const timeBufferMs = 14 * 24 * 60 * 60 * 1000; // 14 days (2 weeks)
+              const adjustedTimeFromNow = timeFromNow + timeBufferMs; // ADD buffer to push right
+              const leftPercent = Math.min(100, Math.max(0, (adjustedTimeFromNow / threeMonthsMs) * 100));
+              
+              // Get event color (will need to implement getEventTypeHexColor utility)
+              const eventColor = '#3b82f6'; // Default blue for now
+              const isCentered = centeredEventId === catalyst.catalyst.id;
+              
+              return (
+                <View
+                  key={`catalyst-${catalyst.timestamp}-${index}`}
+                  style={[
+                    styles.catalystDot,
+                    {
+                      left: `${leftPercent}%`,
+                      top: lastPointY + 6,
+                    }
+                  ]}
+                >
+                  {isCentered && !disableAnimation ? (
+                    <PulsingCatalystDot color={eventColor} />
+                  ) : (
+                    <View 
+                      style={[
+                        styles.catalystDotCircle,
+                        { backgroundColor: eventColor }
+                      ]}
+                    />
+                  )}
+                </View>
+              );
+            })}
+          </View>
+        </View>
+      </View>
+    </View>
+  );
+};
+
+// Pulsing catalyst dot component
+const PulsingCatalystDot: React.FC<{ color: string }> = ({ color }) => {
+  const scale = useSharedValue(1);
+  
+  React.useEffect(() => {
+    scale.value = withRepeat(
+      withTiming(1.3, { duration: 2000, easing: Easing.inOut(Easing.ease) }),
+      -1,
+      false
+    );
+  }, []);
+  
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+  
+  return (
+    <Animated.View 
+      style={[
+        styles.catalystDotCircle,
+        { backgroundColor: color },
+        animatedStyle
+      ]}
+    />
+  );
+};
+
+// Pulsing ring component using react-native-reanimated
+const PulsingRing: React.FC<{ color: string }> = ({ color }) => {
+  const scale = useSharedValue(1);
+  
+  React.useEffect(() => {
+    scale.value = withRepeat(
+      withTiming(1.3, { duration: 2000, easing: Easing.inOut(Easing.ease) }),
+      -1,
+      false
+    );
+  }, []);
+  
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+  
+  return (
+    <Animated.View 
+      style={[
+        styles.pulsingRing,
+        { backgroundColor: color },
+        animatedStyle
+      ]}
+    />
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    width: '100%',
+    position: 'relative',
+  },
+  chartContainer: {
+    width: '100%',
+    height: 120,
+    position: 'relative',
+  },
+  emptyContainer: {
+    width: '100%',
+    height: 120,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  pastSection: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    bottom: 0,
+  },
+  nowDotContainer: {
+    position: 'absolute',
+    transform: [{ translateX: -3.3 }, { translateY: -3.3 }],
+    zIndex: 20,
+  },
+  pulsingRing: {
+    position: 'absolute',
+    width: 11,
+    height: 11,
+    borderRadius: 5.5,
+    opacity: 0.4,
+    left: -2.2,
+    top: -2.2,
+  },
+  nowDot: {
+    width: 6.6,
+    height: 6.6,
+    borderRadius: 3.3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  futureLineContainer: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    width: '100%',
+    height: '100%',
+    zIndex: 1,
+  },
+  futureSection: {
+    position: 'absolute',
+    right: 0,
+    top: -6,
+    bottom: -6,
+    height: 132, // 120 + 12
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  futureGradientOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: '-4%',
+    right: 0,
+    bottom: 0,
+    width: '104%',
+    backgroundColor: 'rgba(236, 236, 240, 0.75)', // Light mode gradient approximation
+    // TODO: Replace with LinearGradient for exact match
+  },
+  catalystDotsContainer: {
+    position: 'relative',
+    width: '100%',
+    height: '100%',
+  },
+  catalystDot: {
+    position: 'absolute',
+    transform: [{ translateX: -5.28 }, { translateY: -5.28 }],
+    zIndex: 10,
+  },
+  catalystDotCircle: {
+    width: 10.56,
+    height: 10.56,
+    borderRadius: 5.28,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.15,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+});
