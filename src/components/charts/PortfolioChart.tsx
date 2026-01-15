@@ -540,7 +540,9 @@ export const PortfolioChart: React.FC<PortfolioChartProps> = ({
       {/* Portfolio Header - styled exactly like StockLineChart */}
       <View style={styles.header}>
         {/* Portfolio Value label */}
-        <Text style={[styles.portfolioTitle, { color: '#000000' }]}>Portfolio</Text>
+        <View style={[styles.tickerBadge, { backgroundColor: themeColors.primary }]}>
+          <Text style={[styles.tickerText, { color: themeColors.primaryForeground }]}>PORTFOLIO</Text>
+        </View>
         
         {/* Price row */}
         <View style={styles.priceRow}>
@@ -678,11 +680,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 24,
     paddingBottom: 8,
-  },
-  portfolioTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 8,
   },
   headerLeft: {
     flex: 1,
