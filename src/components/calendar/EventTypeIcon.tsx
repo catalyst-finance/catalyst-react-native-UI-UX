@@ -18,7 +18,7 @@ export const EventTypeIcon: React.FC<EventTypeIconProps> = ({
 }) => {
   const backgroundColor = getEventTypeHexColor(eventType);
   const iconName = getEventIcon(eventType);
-  const iconSize = size * 0.6; // Icon is 60% of dot size
+  const iconSize = size * 0.5; // Icon is 50% of dot size
 
   return (
     <View
