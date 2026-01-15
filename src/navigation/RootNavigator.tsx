@@ -50,7 +50,7 @@ export const RootNavigator: React.FC = () => {
           options={{
             headerShown: false,
             tabBarIcon: ({ color, size, focused }) => (
-              <View style={{ paddingTop: 8, paddingBottom: 8 }}>
+              <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
                 <Ionicons name={focused ? "home" : "home"} size={size} color={color} />
               </View>
             ),
@@ -62,7 +62,7 @@ export const RootNavigator: React.FC = () => {
           options={{
             headerShown: false,
             tabBarIcon: ({ color, size, focused }) => (
-              <View style={{ paddingTop: 8, paddingBottom: 8 }}>
+              <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
                 <Ionicons name={focused ? "sparkles" : "sparkles"} size={size} color={color} />
               </View>
             ),
@@ -73,7 +73,7 @@ export const RootNavigator: React.FC = () => {
           component={DiscoverScreen}
           options={{
             tabBarIcon: ({ color, size, focused }) => (
-              <View style={{ paddingTop: 8, paddingBottom: 8 }}>
+              <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
                 <Ionicons name={focused ? "search" : "search"} size={size} color={color} />
               </View>
             ),
@@ -84,7 +84,7 @@ export const RootNavigator: React.FC = () => {
           component={ProfileScreen}
           options={{
             tabBarIcon: ({ color, size, focused }) => (
-              <View style={{ paddingTop: 8, paddingBottom: 8 }}>
+              <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
                 <Ionicons name={focused ? "person" : "person"} size={size} color={color} />
               </View>
             ),
