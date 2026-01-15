@@ -1518,9 +1518,8 @@ export const StockLineChart: React.FC<StockLineChartProps> = ({
                 const now = Date.now();
                 const logoSize = 24;
                 
-                // Track which logos have been rendered to avoid duplicates for clustered events
-                // Key: ticker symbol, Value: position percentage where logo was rendered
-                const renderedLogos = new Map<string, number>();
+                // Group catalysts by ticker for logo consolidation
+                const tickerGroups = new Map<string, typeof catalystPositions>();
                 
                 // Pre-calculate positions for clustering
                 const catalystPositions = futureCatalysts.map((catalyst, index) => {
@@ -1547,192 +1546,187 @@ export const StockLineChart: React.FC<StockLineChartProps> = ({
                   }
                   const dotSize = baseDotSizes[index % baseDotSizes.length];
                   
-                  return { catalyst, index, leftPercent, isVisible, timeFromNow, dotSize };
-                });
-                
-                // Sort by dot size descending so smaller dots render last (on top)
-                const sortedPositions = [...catalystPositions].sort((a, b) => b.dotSize - a.dotSize);
-                
-                return sortedPositions.map(({ catalyst, index, leftPercent, isVisible, timeFromNow, dotSize: preCalculatedDotSize }) => {
-                const eventColor = getEventTypeHexColor(catalyst.catalyst.type);
-                
-                // Use pre-calculated dot size from sorting
-                const dotSize = preCalculatedDotSize;
-                const halfDotSize = dotSize / 2;
-                
-                // Portfolio view: colored dot + dashed line + company logo below
-                if (showTickerLogos && catalyst.tickerLogo) {
-                  const logoSize = 24;
-                  
-                  // Get ticker from catalyst
                   const catalystTicker = catalyst.catalyst?.ticker || '';
                   
-                  // Check if we should show the logo for this event
-                  // Cluster events from the same ticker that are within tolerance
-                  const clusterKey = catalystTicker;
-                  const existingLogoPosition = renderedLogos.get(clusterKey);
+                  return { catalyst, index, leftPercent, isVisible, timeFromNow, dotSize, ticker: catalystTicker };
+                });
+                
+                // Group by ticker
+                catalystPositions.forEach(pos => {
+                  if (!tickerGroups.has(pos.ticker)) {
+                    tickerGroups.set(pos.ticker, []);
+                  }
+                  tickerGroups.get(pos.ticker)!.push(pos);
+                });
+                
+                // For portfolio view with logos, determine which tickers should show logos
+                const tickerLogosToShow = new Map<string, { leftPercent: number; row: number; dots: typeof catalystPositions }>();
+                
+                if (showTickerLogos) {
+                  const renderedLogos: Array<{ ticker: string; leftPercent: number; row: number }> = [];
                   
-                  // Determine if this event should show a logo
-                  // Show logo if: no logo rendered yet for this ticker, OR this event is far enough from the last one
-                  const clusterTolerance = 15; // 15% of the future section width
-                  const shouldShowLogo = isVisible && (
-                    existingLogoPosition === undefined || 
-                    Math.abs(leftPercent - existingLogoPosition) > clusterTolerance
-                  );
-                  
-                  // Determine row for logo (stagger into two rows to prevent overlap)
-                  // Check proximity to ALL previously rendered logos (not just same ticker)
-                  let logoRow = 0; // 0 = first row, 1 = second row
-                  if (shouldShowLogo) {
-                    const proximityTolerance = 8; // 8% tolerance for different tickers
+                  // Process each ticker group
+                  for (const [ticker, dots] of tickerGroups.entries()) {
+                    // Only process if ticker has a logo
+                    const firstDotWithLogo = dots.find(d => d.catalyst.tickerLogo);
+                    if (!firstDotWithLogo) continue;
                     
-                    // Check if any logo is too close in the first row
-                    let hasConflictInRow0 = false;
-                    for (const [ticker, position] of renderedLogos.entries()) {
-                      if (Math.abs(leftPercent - position) < proximityTolerance) {
-                        hasConflictInRow0 = true;
+                    // Calculate average position of visible dots for this ticker
+                    const visibleDots = dots.filter(d => d.isVisible);
+                    if (visibleDots.length === 0) continue;
+                    
+                    const avgPosition = visibleDots.reduce((sum, d) => sum + d.leftPercent, 0) / visibleDots.length;
+                    
+                    // Check if we should show a logo for this ticker
+                    // Don't show if another logo for same ticker is within 20% (increased tolerance)
+                    const existingLogoForTicker = renderedLogos.find(l => l.ticker === ticker);
+                    if (existingLogoForTicker && Math.abs(avgPosition - existingLogoForTicker.leftPercent) < 20) {
+                      continue; // Skip this cluster, too close to existing logo for same ticker
+                    }
+                    
+                    // Determine row (stagger different tickers)
+                    let logoRow = 0;
+                    const proximityTolerance = 8;
+                    
+                    for (const existing of renderedLogos) {
+                      if (Math.abs(avgPosition - existing.leftPercent) < proximityTolerance) {
+                        logoRow = 1;
                         break;
                       }
                     }
                     
-                    // If there's a conflict in row 0, use row 1
-                    if (hasConflictInRow0) {
-                      logoRow = 1;
-                    }
+                    // Store logo info
+                    tickerLogosToShow.set(`${ticker}-${avgPosition}`, {
+                      leftPercent: avgPosition,
+                      row: logoRow,
+                      dots: visibleDots,
+                    });
                     
-                    // Update the rendered logo position
-                    renderedLogos.set(clusterKey, leftPercent);
+                    renderedLogos.push({ ticker, leftPercent: avgPosition, row: logoRow });
                   }
-                  
-                  // Calculate logo position based on row
-                  const baseLogoTop = scaledLastPointY + 25;
-                  const rowOffset = logoRow * 32; // 32px offset for second row (logo height + spacing)
-                  const logoTop = baseLogoTop + rowOffset;
-                  const lineHeight = logoTop - scaledLastPointY - halfDotSize + (logoSize / 2);
-                  
-                  const dotBorderColor = isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.3)';
-                  
-                  return (
-                    <React.Fragment key={`catalyst-${index}`}>
-                      {/* Colored event dot with border for differentiation - always show */}
-                      <View
-                        style={[
-                          styles.catalystDot,
-                          {
-                            left: `${leftPercent}%`,
-                            marginLeft: -halfDotSize,
-                            top: scaledLastPointY - halfDotSize,
-                            width: dotSize,
-                            height: dotSize,
-                            borderRadius: dotSize / 2,
-                            backgroundColor: eventColor,
-                            borderWidth: 1.5,
-                            borderColor: dotBorderColor,
-                            zIndex: 12,
-                            opacity: isVisible ? 1 : 0,
-                            justifyContent: 'center',
-                            alignItems: 'center',
-                          }
-                        ]}
-                        pointerEvents="none"
-                      >
-                        <Ionicons
-                          name={getEventIcon(catalyst.catalyst.type)}
-                          size={dotSize * 0.5}
-                          color="#FFFFFF"
-                        />
-                      </View>
-                      
-                      {/* Vertical dashed line - only show if this event shows its logo */}
-                      <View
-                        style={{
-                          position: 'absolute',
-                          left: `${leftPercent}%`,
-                          marginLeft: -0.5,
-                          top: scaledLastPointY + halfDotSize,
-                          width: 1,
-                          height: lineHeight,
-                          zIndex: 9,
-                          opacity: shouldShowLogo ? 1 : 0,
-                        }}
-                        pointerEvents="none"
-                      >
-                        <Svg width="1" height={lineHeight}>
-                          <Line
-                            x1={0.5}
-                            y1={0}
-                            x2={0.5}
-                            y2={lineHeight}
-                            stroke={eventColor}
-                            strokeWidth={1}
-                            strokeDasharray="3,3"
-                            opacity={0.6}
-                          />
-                        </Svg>
-                      </View>
-                      
-                      {/* Company logo - only show if not clustered with another event */}
-                      <View
-                        style={{
-                          position: 'absolute',
-                          left: `${leftPercent}%`,
-                          marginLeft: -(logoSize / 2),
-                          top: logoTop,
-                          width: logoSize,
-                          height: logoSize,
-                          borderRadius: 6,
-                          overflow: 'hidden',
-                          backgroundColor: themeColors.card,
-                          borderWidth: 1,
-                          borderColor: themeColors.border,
-                          zIndex: 11,
-                          opacity: shouldShowLogo ? 1 : 0,
-                        }}
-                        pointerEvents="none"
-                      >
-                        <Image
-                          source={{ uri: catalyst.tickerLogo }}
-                          style={{ width: logoSize, height: logoSize }}
-                          resizeMode="cover"
-                        />
-                      </View>
-                    </React.Fragment>
-                  );
                 }
                 
-                // Default colored dot (stock chart view) with border for differentiation
-                const dotBorderColor = isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.3)';
+                // Sort by dot size descending so smaller dots render last (on top)
+                const sortedPositions = [...catalystPositions].sort((a, b) => b.dotSize - a.dotSize);
+                
                 return (
-                  <View
-                    key={`catalyst-${index}`}
-                    style={[
-                      styles.catalystDot,
-                      {
-                        left: `${leftPercent}%`,
-                        marginLeft: -halfDotSize,
-                        top: scaledLastPointY - halfDotSize,
-                        width: dotSize,
-                        height: dotSize,
-                        borderRadius: dotSize / 2,
-                        backgroundColor: eventColor,
-                        borderWidth: 1.5,
-                        borderColor: dotBorderColor,
-                        zIndex: 10,
-                        opacity: isVisible ? 1 : 0,
-                        justifyContent: 'center',
-                        alignItems: 'center',
-                      }
-                    ]}
-                    pointerEvents="none"
-                  >
-                    <Ionicons
-                      name={getEventIcon(catalyst.catalyst.type)}
-                      size={dotSize * 0.5}
-                      color="#FFFFFF"
-                    />
-                  </View>
+                  <>
+                    {/* Render all event dots */}
+                    {sortedPositions.map(({ catalyst, index, leftPercent, isVisible, timeFromNow, dotSize: preCalculatedDotSize, ticker }) => {
+                      const eventColor = getEventTypeHexColor(catalyst.catalyst.type);
+                      const dotSize = preCalculatedDotSize;
+                      const halfDotSize = dotSize / 2;
+                      const dotBorderColor = isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.3)';
+                      
+                      return (
+                        <View
+                          key={`catalyst-dot-${index}`}
+                          style={[
+                            styles.catalystDot,
+                            {
+                              left: `${leftPercent}%`,
+                              marginLeft: -halfDotSize,
+                              top: scaledLastPointY - halfDotSize,
+                              width: dotSize,
+                              height: dotSize,
+                              borderRadius: dotSize / 2,
+                              backgroundColor: eventColor,
+                              borderWidth: 1.5,
+                              borderColor: dotBorderColor,
+                              zIndex: 12,
+                              opacity: isVisible ? 1 : 0,
+                              justifyContent: 'center',
+                              alignItems: 'center',
+                            }
+                          ]}
+                          pointerEvents="none"
+                        >
+                          <Ionicons
+                            name={getEventIcon(catalyst.catalyst.type)}
+                            size={dotSize * 0.5}
+                            color="#FFFFFF"
+                          />
+                        </View>
+                      );
+                    })}
+                    
+                    {/* Render company logos with branching lines (portfolio view only) */}
+                    {showTickerLogos && Array.from(tickerLogosToShow.entries()).map(([key, logoInfo]) => {
+                      const { leftPercent: logoLeftPercent, row: logoRow, dots } = logoInfo;
+                      const firstDot = dots[0];
+                      const ticker = firstDot.ticker;
+                      const tickerLogo = firstDot.catalyst.tickerLogo;
+                      
+                      if (!tickerLogo) return null;
+                      
+                      // Calculate logo position
+                      const baseLogoTop = scaledLastPointY + 25;
+                      const rowOffset = logoRow * 32;
+                      const logoTop = baseLogoTop + rowOffset;
+                      
+                      return (
+                        <React.Fragment key={`logo-${key}`}>
+                          {/* Branching dashed lines from logo to each dot */}
+                          {dots.map((dot, dotIndex) => {
+                            const lineHeight = logoTop - scaledLastPointY + (logoSize / 2);
+                            const dotHalfSize = dot.dotSize / 2;
+                            
+                            return (
+                              <Svg
+                                key={`line-${key}-${dotIndex}`}
+                                style={{
+                                  position: 'absolute',
+                                  left: 0,
+                                  top: 0,
+                                  width: '100%',
+                                  height: '100%',
+                                  zIndex: 9,
+                                }}
+                                viewBox="0 0 100 100"
+                                preserveAspectRatio="none"
+                                pointerEvents="none"
+                              >
+                                <Path
+                                  d={`M ${dot.leftPercent} ${((scaledLastPointY + dotHalfSize) / height) * 100} L ${logoLeftPercent} ${((logoTop + logoSize / 2) / height) * 100}`}
+                                  stroke={getEventTypeHexColor(dot.catalyst.catalyst.type)}
+                                  strokeWidth="0.3"
+                                  strokeDasharray="2,2"
+                                  opacity={0.6}
+                                  vectorEffect="non-scaling-stroke"
+                                />
+                              </Svg>
+                            );
+                          })}
+                          
+                          {/* Company logo */}
+                          <View
+                            style={{
+                              position: 'absolute',
+                              left: `${logoLeftPercent}%`,
+                              marginLeft: -(logoSize / 2),
+                              top: logoTop,
+                              width: logoSize,
+                              height: logoSize,
+                              borderRadius: 6,
+                              overflow: 'hidden',
+                              backgroundColor: themeColors.card,
+                              borderWidth: 1,
+                              borderColor: themeColors.border,
+                              zIndex: 11,
+                            }}
+                            pointerEvents="none"
+                          >
+                            <Image
+                              source={{ uri: tickerLogo }}
+                              style={{ width: logoSize, height: logoSize }}
+                              resizeMode="cover"
+                            />
+                          </View>
+                        </React.Fragment>
+                      );
+                    })}
+                  </>
                 );
-              });
               })()}
               
               {/* Crosshair in future section */}
