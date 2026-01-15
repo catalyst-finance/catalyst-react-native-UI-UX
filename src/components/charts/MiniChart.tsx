@@ -9,6 +9,7 @@ import React, { useMemo, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, Animated } from 'react-native';
 import Svg, { Path, Line, Rect, Defs, ClipPath } from 'react-native-svg';
 import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
 import { Point, generateContinuousSmoothPath } from '../../utils/bezier-path-utils';
 import { 
   getMarketHoursBounds, 
@@ -19,7 +20,6 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { colors } from '../../constants/design-tokens';
 import { getEventTypeHexColor } from '../../utils/event-formatting';
 import { getEventIcon } from '../../utils/event-icons';
-import { Ionicons } from '@expo/vector-icons';
 
 interface MarketEvent {
   id: string;
@@ -321,6 +321,8 @@ export const MiniChart: React.FC<MiniChartProps> = ({
               
               const eventColor = getEventTypeHexColor(catalyst.catalyst.type);
               const dotBorderColor = isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.3)';
+              const dotSize = 12;
+              const halfDotSize = dotSize / 2;
               
               return (
                 <View
@@ -329,14 +331,25 @@ export const MiniChart: React.FC<MiniChartProps> = ({
                     styles.catalystDot,
                     {
                       left: `${leftPercent}%`,
-                      marginLeft: -5,
-                      top: 55, // Center vertically (120/2 - 5)
+                      marginLeft: -halfDotSize,
+                      top: 55 - halfDotSize + 5, // Center vertically
+                      width: dotSize,
+                      height: dotSize,
+                      borderRadius: halfDotSize,
                       backgroundColor: eventColor,
                       borderWidth: 1.5,
                       borderColor: dotBorderColor,
+                      justifyContent: 'center',
+                      alignItems: 'center',
                     }
                   ]}
-                />
+                >
+                  <Ionicons
+                    name={getEventIcon(catalyst.catalyst.type)}
+                    size={dotSize * 0.5}
+                    color="#FFFFFF"
+                  />
+                </View>
               );
             })}
           </View>
@@ -577,9 +590,8 @@ export const MiniChart: React.FC<MiniChartProps> = ({
             
             const eventColor = getEventTypeHexColor(catalyst.catalyst.type);
             const dotBorderColor = isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.3)';
-            const iconName = getEventIcon(catalyst.catalyst.type);
-            const dotSize = 10; // Smaller than stock chart
-            const iconSize = dotSize * 0.5; // 50% of dot size
+            const dotSize = 12;
+            const halfDotSize = dotSize / 2;
             
             return (
               <View
@@ -588,11 +600,11 @@ export const MiniChart: React.FC<MiniChartProps> = ({
                   styles.catalystDot,
                   {
                     left: `${leftPercent}%`,
-                    marginLeft: -dotSize / 2,
-                    top: scaledLastPointY - dotSize / 2,
+                    marginLeft: -halfDotSize, // Center horizontally
+                    top: scaledLastPointY - halfDotSize, // Center vertically on the line (scaled to container height)
                     width: dotSize,
                     height: dotSize,
-                    borderRadius: dotSize / 2,
+                    borderRadius: halfDotSize,
                     backgroundColor: eventColor,
                     borderWidth: 1.5,
                     borderColor: dotBorderColor,
@@ -602,8 +614,8 @@ export const MiniChart: React.FC<MiniChartProps> = ({
                 ]}
               >
                 <Ionicons
-                  name={iconName}
-                  size={iconSize}
+                  name={getEventIcon(catalyst.catalyst.type)}
+                  size={dotSize * 0.5}
                   color="#FFFFFF"
                 />
               </View>
