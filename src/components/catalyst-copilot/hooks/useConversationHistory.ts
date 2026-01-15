@@ -119,7 +119,12 @@ export function useConversationHistory() {
   }, []);
 
   const saveConversation = useCallback(async (conversationId: string, messages: Message[]) => {
-    if (messages.length === 0) return;
+    if (messages.length === 0) {
+      console.log('[useConversationHistory] Skipping save - no messages');
+      return;
+    }
+
+    console.log(`[useConversationHistory] Saving conversation ${conversationId} with ${messages.length} messages`);
 
     try {
       const now = new Date();
@@ -135,6 +140,7 @@ export function useConversationHistory() {
         `${CONVERSATION_PREFIX}${conversationId}`,
         JSON.stringify(conversation)
       );
+      console.log(`[useConversationHistory] Saved conversation data to storage`);
 
       // Update the index
       setConversations(prev => {
@@ -152,8 +158,10 @@ export function useConversationHistory() {
         if (existingIndex >= 0) {
           newSummaries = [...prev];
           newSummaries[existingIndex] = summary;
+          console.log(`[useConversationHistory] Updated existing conversation in index`);
         } else {
           newSummaries = [summary, ...prev];
+          console.log(`[useConversationHistory] Added new conversation to index`);
         }
 
         // Limit to MAX_CONVERSATIONS
@@ -170,6 +178,7 @@ export function useConversationHistory() {
         
         // Save index
         saveConversationIndex(newSummaries);
+        console.log(`[useConversationHistory] Index now has ${newSummaries.length} conversations`);
         
         return newSummaries;
       });

@@ -35,6 +35,7 @@ export const CopilotScreen: React.FC = () => {
   const navigation = useNavigation<NavigationProp>();
   const [showHistory, setShowHistory] = useState(false);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
+  const [resetKey, setResetKey] = useState(0); // Key to force reset
   const slideAnim = useRef(new Animated.Value(0)).current;
   
   const {
@@ -78,7 +79,8 @@ export const CopilotScreen: React.FC = () => {
   }, []);
 
   const handleNewConversation = useCallback(() => {
-    // Set to null first to trigger message clearing, then the component will generate a new ID
+    // Increment reset key to force CatalystCopilot to reset even if conversationId is already null
+    setResetKey(prev => prev + 1);
     setCurrentConversationId(null);
     setShowHistory(false);
   }, []);
@@ -173,6 +175,7 @@ export const CopilotScreen: React.FC = () => {
       </View>
 
       <CatalystCopilot
+        key={resetKey} // Force remount on new chat
         onTickerClick={handleTickerClick}
         onEventClick={handleEventClick}
         conversationId={currentConversationId}
