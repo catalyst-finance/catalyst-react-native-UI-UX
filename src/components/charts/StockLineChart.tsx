@@ -2021,7 +2021,7 @@ const styles = StyleSheet.create({
   },
   dualRangeContainer: {
     flexDirection: 'row',
-    marginTop: 0,
+    marginTop: 32, // Add constant top margin to prevent logo overlap
     gap: 8,
     paddingHorizontal: 16,
   },
