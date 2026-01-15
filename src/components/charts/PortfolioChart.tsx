@@ -187,6 +187,7 @@ export const PortfolioChart: React.FC<PortfolioChartProps> = ({
     try {
       let totalValue = 0;
       let totalPrevClose = 0;
+      let holdingsWithData = 0;
 
       // Fetch current stock data for all holdings
       await Promise.all(
@@ -199,6 +200,9 @@ export const PortfolioChart: React.FC<PortfolioChartProps> = ({
               
               totalValue += positionValue;
               totalPrevClose += positionPrevClose;
+              holdingsWithData++;
+            } else {
+              console.warn(`[PortfolioChart] No price data for ${holding.ticker}, excluding from portfolio value`);
             }
           } catch (error) {
             console.error(`Error fetching stock data for ${holding.ticker}:`, error);
@@ -206,16 +210,21 @@ export const PortfolioChart: React.FC<PortfolioChartProps> = ({
         })
       );
 
-      setCurrentValue(totalValue);
-      setPreviousClose(totalPrevClose);
-      
-      const change = totalValue - totalPrevClose;
-      setDayChange(change);
-      
-      if (totalPrevClose > 0) {
-        setDayChangePercent((change / totalPrevClose) * 100);
+      // Only update if we have at least some data
+      if (holdingsWithData > 0) {
+        setCurrentValue(totalValue);
+        setPreviousClose(totalPrevClose);
+        
+        const change = totalValue - totalPrevClose;
+        setDayChange(change);
+        
+        if (totalPrevClose > 0) {
+          setDayChangePercent((change / totalPrevClose) * 100);
+        } else {
+          setDayChangePercent(0);
+        }
       } else {
-        setDayChangePercent(0);
+        console.warn('[PortfolioChart] No holdings have price data');
       }
     } catch (error) {
       console.error('Error calculating portfolio value:', error);
@@ -252,6 +261,7 @@ export const PortfolioChart: React.FC<PortfolioChartProps> = ({
     try {
       // Fetch intraday data for all holdings
       const intradayDataMap: Record<string, any[]> = {};
+      const holdingsWithData: Holding[] = [];
       
       await Promise.all(
         holdings.map(async (holding) => {
@@ -259,6 +269,9 @@ export const PortfolioChart: React.FC<PortfolioChartProps> = ({
             const intradayPrices = await HistoricalPriceAPI.fetchHistoricalData(holding.ticker, '1D');
             if (intradayPrices && intradayPrices.length > 0) {
               intradayDataMap[holding.ticker] = intradayPrices;
+              holdingsWithData.push(holding);
+            } else {
+              console.warn(`[PortfolioChart] No intraday data for ${holding.ticker}, excluding from portfolio calculation`);
             }
           } catch (error) {
             console.error(`Error fetching intraday data for ${holding.ticker}:`, error);
@@ -266,9 +279,14 @@ export const PortfolioChart: React.FC<PortfolioChartProps> = ({
         })
       );
 
-      // Aggregate portfolio value at each timestamp
-      const portfolioHistory = aggregatePortfolioData(intradayDataMap, holdings);
-      setPortfolioData(portfolioHistory);
+      // Only aggregate if we have at least one holding with data
+      if (holdingsWithData.length > 0) {
+        const portfolioHistory = aggregatePortfolioData(intradayDataMap, holdingsWithData);
+        setPortfolioData(portfolioHistory);
+      } else {
+        console.warn('[PortfolioChart] No holdings have intraday data');
+        setPortfolioData([]);
+      }
     } catch (error) {
       console.error('Error loading intraday portfolio data:', error);
       setPortfolioData([]);
@@ -280,6 +298,7 @@ export const PortfolioChart: React.FC<PortfolioChartProps> = ({
     try {
       // Fetch historical data for all holdings
       const historicalDataMap: Record<string, any[]> = {};
+      const holdingsWithData: Holding[] = [];
       
       await Promise.all(
         holdings.map(async (holding) => {
@@ -290,6 +309,9 @@ export const PortfolioChart: React.FC<PortfolioChartProps> = ({
             );
             if (historicalPrices && historicalPrices.length > 0) {
               historicalDataMap[holding.ticker] = historicalPrices;
+              holdingsWithData.push(holding);
+            } else {
+              console.warn(`[PortfolioChart] No historical data for ${holding.ticker}, excluding from portfolio calculation`);
             }
           } catch (error) {
             console.error(`Error fetching historical data for ${holding.ticker}:`, error);
@@ -297,9 +319,14 @@ export const PortfolioChart: React.FC<PortfolioChartProps> = ({
         })
       );
 
-      // Aggregate portfolio value at each timestamp
-      const portfolioHistory = aggregatePortfolioData(historicalDataMap, holdings);
-      setPortfolioData(portfolioHistory);
+      // Only aggregate if we have at least one holding with data
+      if (holdingsWithData.length > 0) {
+        const portfolioHistory = aggregatePortfolioData(historicalDataMap, holdingsWithData);
+        setPortfolioData(portfolioHistory);
+      } else {
+        console.warn('[PortfolioChart] No holdings have historical data');
+        setPortfolioData([]);
+      }
     } catch (error) {
       console.error('Error loading historical portfolio data:', error);
       setPortfolioData([]);

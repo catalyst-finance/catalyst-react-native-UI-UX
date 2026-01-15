@@ -231,9 +231,15 @@ export const HomeScreen: React.FC = () => {
             const intradayPrices = await HistoricalPriceAPI.fetchHistoricalData(ticker, '1D');
             if (intradayPrices && intradayPrices.length > 0) {
               data[ticker] = intradayPrices;
+            } else {
+              // No intraday data available - mark as empty array to indicate we tried
+              // This prevents infinite loading state
+              data[ticker] = [];
             }
           } catch (error) {
             console.error(`Error loading intraday data for ${ticker}:`, error);
+            // Mark as empty on error to prevent infinite loading
+            data[ticker] = [];
           }
         })
       );
@@ -459,7 +465,9 @@ export const HomeScreen: React.FC = () => {
                       const shares = getSharesForTicker(ticker);
                       const tickerEvents = events[ticker] || [];
                       
-                      if (!stock || !intraday) {
+                      // Show loading only if we haven't tried to fetch data yet
+                      // (intraday is undefined, not empty array)
+                      if (!stock || intraday === undefined) {
                         return (
                           <View key={ticker} style={styles.cardContainer}>
                             <View style={[styles.loadingCard, { backgroundColor: themeColors.card }]}>
@@ -469,6 +477,7 @@ export const HomeScreen: React.FC = () => {
                         );
                       }
 
+                      // Render card even with empty intraday data - MiniChart handles empty state
                       return (
                         <View key={ticker} style={styles.cardContainer}>
                           <HoldingsCard
@@ -477,7 +486,7 @@ export const HomeScreen: React.FC = () => {
                             currentPrice={stock.currentPrice}
                             previousClose={stock.previousClose ?? null}
                             shares={shares}
-                            data={intraday}
+                            data={intraday || []}
                             futureCatalysts={tickerEvents.map((event, idx) => ({
                               date: event.actualDateTime || '',
                               timestamp: new Date(event.actualDateTime || Date.now()).getTime(),
@@ -506,7 +515,8 @@ export const HomeScreen: React.FC = () => {
                       const intraday = intradayData[ticker];
                       const tickerEvents = events[ticker] || [];
                       
-                      if (!stock || !intraday) {
+                      // Show loading only if we haven't tried to fetch data yet
+                      if (!stock || intraday === undefined) {
                         return (
                           <View key={ticker} style={styles.cardContainer}>
                             <View style={[styles.loadingCard, { backgroundColor: themeColors.card }]}>
@@ -516,6 +526,7 @@ export const HomeScreen: React.FC = () => {
                         );
                       }
 
+                      // Render card even with empty intraday data
                       return (
                         <View key={ticker} style={styles.cardContainer}>
                           <WatchlistCard
@@ -523,7 +534,7 @@ export const HomeScreen: React.FC = () => {
                             company={stock.company}
                             currentPrice={stock.currentPrice}
                             previousClose={stock.previousClose ?? 0}
-                            data={intraday}
+                            data={intraday || []}
                             futureCatalysts={tickerEvents.map((event, idx) => ({
                               date: event.actualDateTime || '',
                               timestamp: new Date(event.actualDateTime || Date.now()).getTime(),

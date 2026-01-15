@@ -6,7 +6,7 @@
  */
 
 import React, { useMemo, useEffect, useRef } from 'react';
-import { View, StyleSheet, Animated } from 'react-native';
+import { View, Text, StyleSheet, Animated } from 'react-native';
 import Svg, { Path, Line, Rect, Defs, ClipPath } from 'react-native-svg';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Point, generateContinuousSmoothPath } from '../../utils/bezier-path-utils';
@@ -191,7 +191,12 @@ export const MiniChart: React.FC<MiniChartProps> = ({
     }
 
     // Get trading day and market hours for time-based positioning
-    const tradingDay = getTradingDayFromData(data);
+    // Convert data to ensure timestamps are numbers for getTradingDayFromData
+    const dataWithNumericTimestamps = data.map(d => ({
+      ...d,
+      timestamp: typeof d.timestamp === 'string' ? new Date(d.timestamp).getTime() : d.timestamp
+    }));
+    const tradingDay = getTradingDayFromData(dataWithNumericTimestamps);
     const marketHours = getMarketHoursBounds(tradingDay);
 
     // Get all values for scaling
@@ -283,8 +288,57 @@ export const MiniChart: React.FC<MiniChartProps> = ({
   // Empty state
   if (!data || data.length === 0) {
     return (
-      <View style={styles.emptyContainer}>
-        {/* Empty chart placeholder */}
+      <View style={styles.container}>
+        <View style={styles.chartContainer}>
+          {/* Past section - empty with "No data" message */}
+          <View style={[styles.pastSection, { width: `${58}%`, justifyContent: 'center', alignItems: 'center' }]}>
+            <Text style={{ color: isDark ? '#666' : '#999', fontSize: 12 }}>No data available</Text>
+          </View>
+          
+          {/* Future section with gradient - still show catalyst dots */}
+          <View style={[styles.futureSection, { width: `${42}%`, backgroundColor: isDark ? '#030213' : '#ececf0' }]}>
+            {/* Main horizontal gradient */}
+            <LinearGradient
+              colors={isDark 
+                ? ['rgba(3, 2, 19, 1)', 'rgba(60, 60, 60, 1)', 'rgba(60, 60, 60, 1)', 'rgba(3, 2, 19, 1)']
+                : ['rgba(255, 255, 255, 1)', 'rgba(236, 236, 240, 1)', 'rgba(236, 236, 240, 1)', 'rgba(255, 255, 255, 1)']}
+              locations={[0, 0.2, 0.8, 1]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={StyleSheet.absoluteFill}
+            />
+            
+            {/* Catalyst dots - positioned at center height */}
+            {futureCatalysts.map((catalyst, index) => {
+              const now = Date.now();
+              const threeMonthsMs = 90 * 24 * 60 * 60 * 1000;
+              const timeFromNow = catalyst.timestamp - now;
+              const timeBufferMs = 14 * 24 * 60 * 60 * 1000;
+              const adjustedTime = timeFromNow + timeBufferMs;
+              const leftPercent = Math.min(95, Math.max(5, (adjustedTime / threeMonthsMs) * 100));
+              
+              const eventColor = getEventTypeHexColor(catalyst.catalyst.type);
+              const dotBorderColor = isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.3)';
+              
+              return (
+                <View
+                  key={`catalyst-${index}`}
+                  style={[
+                    styles.catalystDot,
+                    {
+                      left: `${leftPercent}%`,
+                      marginLeft: -5,
+                      top: 55, // Center vertically (120/2 - 5)
+                      backgroundColor: eventColor,
+                      borderWidth: 1.5,
+                      borderColor: dotBorderColor,
+                    }
+                  ]}
+                />
+              );
+            })}
+          </View>
+        </View>
       </View>
     );
   }

@@ -18,6 +18,8 @@
       "infoPlist": {
         "UIBackgroundModes": [
           "fetch",
+          "remote-notification",
+          "fetch",
           "remote-notification"
         ]
       }
@@ -30,6 +32,8 @@
       "package": "com.catalyst.app",
       "permissions": [
         "INTERNET",
+        "ACCESS_NETWORK_STATE",
+        "INTERNET",
         "ACCESS_NETWORK_STATE"
       ]
     },
@@ -37,11 +41,17 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [],
+    "owner": "catalyst-finance-incorp",
     "extra": {
       "eas": {
-        "projectId": "33ef03c2-81d7-47aa-bc9b-41b1a356b037"
+        "projectId": "c6e689f6-5228-47db-9b16-35579d96dc31"
       }
     },
-    "owner": "catalyst-finance"
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/c6e689f6-5228-47db-9b16-35579d96dc31"
+    }
   }
 }
