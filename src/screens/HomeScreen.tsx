@@ -673,6 +673,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     borderBottomWidth: 1,
     paddingHorizontal: 16,
+    marginHorizontal: 16,
   },
   tabButton: {
     flex: 1,
