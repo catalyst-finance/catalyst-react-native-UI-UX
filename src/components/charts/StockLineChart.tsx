@@ -1568,8 +1568,7 @@ export const StockLineChart: React.FC<StockLineChartProps> = ({
                   const catalystTicker = catalyst.catalyst?.ticker || '';
                   
                   // Check if we should show the logo for this event
-                  // Cluster events from the same ticker that are within a higher tolerance
-                  // Increased from 8% to 15% to group more events together
+                  // Cluster events from the same ticker that are within tolerance
                   const clusterKey = catalystTicker;
                   const existingLogoPosition = renderedLogos.get(clusterKey);
                   
@@ -1581,13 +1580,34 @@ export const StockLineChart: React.FC<StockLineChartProps> = ({
                     Math.abs(leftPercent - existingLogoPosition) > clusterTolerance
                   );
                   
-                  // Update the rendered logo position if we're showing one
+                  // Determine row for logo (stagger into two rows to prevent overlap)
+                  // Check proximity to ALL previously rendered logos (not just same ticker)
+                  let logoRow = 0; // 0 = first row, 1 = second row
                   if (shouldShowLogo) {
+                    const proximityTolerance = 8; // 8% tolerance for different tickers
+                    
+                    // Check if any logo is too close in the first row
+                    let hasConflictInRow0 = false;
+                    for (const [ticker, position] of renderedLogos.entries()) {
+                      if (Math.abs(leftPercent - position) < proximityTolerance) {
+                        hasConflictInRow0 = true;
+                        break;
+                      }
+                    }
+                    
+                    // If there's a conflict in row 0, use row 1
+                    if (hasConflictInRow0) {
+                      logoRow = 1;
+                    }
+                    
+                    // Update the rendered logo position
                     renderedLogos.set(clusterKey, leftPercent);
                   }
                   
-                  // All logos on the same line (no vertical staggering)
-                  const logoTop = scaledLastPointY + 25;
+                  // Calculate logo position based on row
+                  const baseLogoTop = scaledLastPointY + 25;
+                  const rowOffset = logoRow * 32; // 32px offset for second row (logo height + spacing)
+                  const logoTop = baseLogoTop + rowOffset;
                   const lineHeight = logoTop - scaledLastPointY - halfDotSize + (logoSize / 2);
                   
                   const dotBorderColor = isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.3)';
