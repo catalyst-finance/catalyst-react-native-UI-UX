@@ -134,7 +134,7 @@ export const PortfolioChart: React.FC<PortfolioChartProps> = ({
 
   // Calculate session-specific change based on current period
   const sessionSpecificChange = useMemo(() => {
-    if (selectedTimeRange !== '1D' || currentPeriod === 'regular') {
+    if (selectedTimeRange !== '1D' || currentPeriod === 'regular' || currentPeriod === 'closed') {
       return null;
     }
 
@@ -144,24 +144,18 @@ export const PortfolioChart: React.FC<PortfolioChartProps> = ({
       const dollarChange = currentValue - previousClose;
       const percentChange = previousClose > 0 ? (dollarChange / previousClose) * 100 : 0;
       return { dollarChange, percentChange };
-    } else if (currentPeriod === 'afterhours' || currentPeriod === 'closed') {
-      // After-hours or closed: change from regular session close
-      // Find the regular session close from portfolio data
-      const regularSessionData = portfolioData.filter(d => d.session === 'regular');
-      
-      if (regularSessionData.length > 0) {
-        const regularSessionClose = regularSessionData[regularSessionData.length - 1].value;
-        const dollarChange = currentValue - regularSessionClose;
-        const percentChange = regularSessionClose > 0 ? (dollarChange / regularSessionClose) * 100 : 0;
-        return { dollarChange, percentChange };
-      }
-      
-      // Fallback if no regular session data available
-      return null;
+    } else if (currentPeriod === 'afterhours') {
+      // After-hours: change from regular session close
+      // For portfolio, we'll use the day change as the reference
+      // since we don't track individual session closes for the portfolio
+      const regularSessionClose = currentValue - dayChange;
+      const dollarChange = currentValue - regularSessionClose;
+      const percentChange = regularSessionClose > 0 ? (dollarChange / regularSessionClose) * 100 : 0;
+      return { dollarChange, percentChange };
     }
 
     return null;
-  }, [currentValue, previousClose, portfolioData, currentPeriod, selectedTimeRange]);
+  }, [currentValue, previousClose, dayChange, currentPeriod, selectedTimeRange]);
 
   // Handle crosshair changes from StockLineChart
   const handleCrosshairChange = useCallback((isActive: boolean, value?: number, timestamp?: number) => {
