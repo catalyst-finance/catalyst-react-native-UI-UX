@@ -1,4 +1,5 @@
 import React from 'react';
+import { View } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
@@ -49,7 +50,9 @@ export const RootNavigator: React.FC = () => {
           options={{
             headerShown: false,
             tabBarIcon: ({ color, size, focused }) => (
-              <Ionicons name={focused ? "home" : "home"} size={size} color={color} />
+              <View style={{ paddingTop: 4 }}>
+                <Ionicons name={focused ? "home" : "home"} size={size} color={color} />
+              </View>
             ),
           }}
         />
@@ -59,7 +62,9 @@ export const RootNavigator: React.FC = () => {
           options={{
             headerShown: false,
             tabBarIcon: ({ color, size, focused }) => (
-              <Ionicons name={focused ? "sparkles" : "sparkles"} size={size} color={color} />
+              <View style={{ paddingTop: 4 }}>
+                <Ionicons name={focused ? "sparkles" : "sparkles"} size={size} color={color} />
+              </View>
             ),
           }}
         />
@@ -68,7 +73,9 @@ export const RootNavigator: React.FC = () => {
           component={DiscoverScreen}
           options={{
             tabBarIcon: ({ color, size, focused }) => (
-              <Ionicons name={focused ? "search" : "search"} size={size} color={color} />
+              <View style={{ paddingTop: 4 }}>
+                <Ionicons name={focused ? "search" : "search"} size={size} color={color} />
+              </View>
             ),
           }}
         />
@@ -77,7 +84,9 @@ export const RootNavigator: React.FC = () => {
           component={ProfileScreen}
           options={{
             tabBarIcon: ({ color, size, focused }) => (
-              <Ionicons name={focused ? "person" : "person"} size={size} color={color} />
+              <View style={{ paddingTop: 4 }}>
+                <Ionicons name={focused ? "person" : "person"} size={size} color={color} />
+              </View>
             ),
           }}
         />
