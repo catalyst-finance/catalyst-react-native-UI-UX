@@ -450,7 +450,7 @@ export const HomeScreen: React.FC = () => {
           />
         }
       >
-        {/* Portfolio Chart - Above tabs, full width */}
+        {/* Portfolio Chart - Above tabs, full width with header padding */}
         {holdings.length > 0 && (
           <PortfolioChart
             holdings={holdings}
