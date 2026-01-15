@@ -18,6 +18,8 @@ import {
 import { useTheme } from '../../contexts/ThemeContext';
 import { colors } from '../../constants/design-tokens';
 import { getEventTypeHexColor } from '../../utils/event-formatting';
+import { getEventIcon } from '../../utils/event-icons';
+import { Ionicons } from '@expo/vector-icons';
 
 interface MarketEvent {
   id: string;
@@ -575,6 +577,9 @@ export const MiniChart: React.FC<MiniChartProps> = ({
             
             const eventColor = getEventTypeHexColor(catalyst.catalyst.type);
             const dotBorderColor = isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.3)';
+            const iconName = getEventIcon(catalyst.catalyst.type);
+            const dotSize = 10; // Smaller than stock chart
+            const iconSize = dotSize * 0.5; // 50% of dot size
             
             return (
               <View
@@ -583,14 +588,25 @@ export const MiniChart: React.FC<MiniChartProps> = ({
                   styles.catalystDot,
                   {
                     left: `${leftPercent}%`,
-                    marginLeft: -5, // Center horizontally
-                    top: scaledLastPointY - 5, // Center vertically on the line (scaled to container height)
+                    marginLeft: -dotSize / 2,
+                    top: scaledLastPointY - dotSize / 2,
+                    width: dotSize,
+                    height: dotSize,
+                    borderRadius: dotSize / 2,
                     backgroundColor: eventColor,
                     borderWidth: 1.5,
                     borderColor: dotBorderColor,
+                    justifyContent: 'center',
+                    alignItems: 'center',
                   }
                 ]}
-              />
+              >
+                <Ionicons
+                  name={iconName}
+                  size={iconSize}
+                  color="#FFFFFF"
+                />
+              </View>
             );
           })}
         </View>
@@ -687,9 +703,6 @@ const styles = StyleSheet.create({
   },
   catalystDot: {
     position: 'absolute',
-    width: 10,
-    height: 10,
-    borderRadius: 5,
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.15,
     shadowRadius: 2,
