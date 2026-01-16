@@ -20,8 +20,13 @@
           "fetch",
           "remote-notification",
           "fetch",
+          "remote-notification",
+          "fetch",
+          "remote-notification",
+          "fetch",
           "remote-notification"
-        ]
+        ],
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -41,7 +46,7 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [],
-    "owner": "catalyst-finance-incorp",
+    "owner": "catalyst-finance",
     "extra": {
       "eas": {
         "projectId": "c6e689f6-5228-47db-9b16-35579d96dc31"
