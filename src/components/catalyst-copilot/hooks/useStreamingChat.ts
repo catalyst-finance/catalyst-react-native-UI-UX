@@ -365,6 +365,8 @@ export function useStreamingChat(options: UseStreamingChatOptions = {}): UseStre
   const reconnectAttemptsRef = useRef<number>(0);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isUnmountingRef = useRef<boolean>(false);
+  const connectionGracePeriodRef = useRef<NodeJS.Timeout | null>(null);
+  const hasConnectedOnceRef = useRef<boolean>(false);
   const collectedDataRef = useRef<{
     thinking: ThinkingStep[];
     content: string;
@@ -437,7 +439,14 @@ export function useStreamingChat(options: UseStreamingChatOptions = {}): UseStre
     ws.onopen = () => {
       console.log('[WS] Connected');
       setIsConnected(true);
+      hasConnectedOnceRef.current = true;
       reconnectAttemptsRef.current = 0;
+      
+      // Clear grace period timer if it exists
+      if (connectionGracePeriodRef.current) {
+        clearTimeout(connectionGracePeriodRef.current);
+        connectionGracePeriodRef.current = null;
+      }
     };
 
     ws.onmessage = (event) => {
@@ -574,7 +583,27 @@ export function useStreamingChat(options: UseStreamingChatOptions = {}): UseStre
 
     ws.onclose = () => {
       console.log('[WS] Disconnected');
-      setIsConnected(false);
+      
+      // Clear grace period timer if it exists
+      if (connectionGracePeriodRef.current) {
+        clearTimeout(connectionGracePeriodRef.current);
+        connectionGracePeriodRef.current = null;
+      }
+      
+      // Only show disconnected state after grace period (if we've connected before)
+      // or immediately if we've never connected
+      if (hasConnectedOnceRef.current) {
+        // Add a small delay before showing disconnected state
+        connectionGracePeriodRef.current = setTimeout(() => {
+          setIsConnected(false);
+        }, 500); // 500ms grace period
+      } else {
+        // First connection attempt - don't show disconnected immediately
+        connectionGracePeriodRef.current = setTimeout(() => {
+          setIsConnected(false);
+        }, 2000); // 2 second grace period for initial connection
+      }
+      
       wsRef.current = null;
 
       // Don't attempt reconnection if component is unmounting
@@ -604,6 +633,10 @@ export function useStreamingChat(options: UseStreamingChatOptions = {}): UseStre
       console.log('[WS] Component unmounting, cleaning up');
       isUnmountingRef.current = true;
       
+      if (connectionGracePeriodRef.current) {
+        clearTimeout(connectionGracePeriodRef.current);
+        connectionGracePeriodRef.current = null;
+      }
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = null;
