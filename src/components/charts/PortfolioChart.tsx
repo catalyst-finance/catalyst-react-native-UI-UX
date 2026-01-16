@@ -745,16 +745,34 @@ export const PortfolioChart: React.FC<PortfolioChartProps> = ({
               isDisplayPositive = displayChange >= 0;
             }
             
+            // For display purposes, treat overnight/weekend as after-hours (matching StockLineChart)
+            const displayPeriod = currentPeriod === 'closed' ? 'afterhours' : currentPeriod;
+            
             // Determine if we should show session-specific data
             // For portfolio, we'll show extended hours info when in 1D view and market is in extended hours
             const showSessionData = selectedTimeRange === '1D' 
               && sessionSpecificChange !== null 
-              && currentPeriod !== 'regular'
+              && displayPeriod !== 'regular'
               && !crosshairActive; // Don't show session data when crosshair is active
             
             const sessionDollarChange = sessionSpecificChange?.dollarChange || 0;
             const sessionPercentChange = sessionSpecificChange?.percentChange || 0;
             const isSessionPositive = sessionDollarChange >= 0;
+            
+            // Determine labels based on period (matching StockLineChart exactly)
+            let firstRowLabel = '';
+            let secondRowLabel = '';
+            
+            if (showSessionData) {
+              if (displayPeriod === 'premarket') {
+                firstRowLabel = 'Prev Close';
+                secondRowLabel = 'Pre-Market';
+              } else {
+                // After-hours or overnight/weekend
+                firstRowLabel = 'Today';
+                secondRowLabel = 'After Hours';
+              }
+            }
             
             return (
               <View style={styles.changesColumn}>
@@ -767,7 +785,7 @@ export const PortfolioChart: React.FC<PortfolioChartProps> = ({
                     ${formatNumber(Math.abs(displayChange))} ({isDisplayPositive ? '+' : ''}{displayChangePercent.toFixed(2)}%)
                   </Text>
                   <Text style={[styles.changeLabel, { color: themeColors.mutedForeground }]}>
-                    {showSessionData ? (currentPeriod === 'premarket' ? 'Pre-Market' : (currentPeriod === 'afterhours' ? 'After Hours' : 'Today')) : ''}
+                    {firstRowLabel}
                   </Text>
                 </View>
 
@@ -782,7 +800,7 @@ export const PortfolioChart: React.FC<PortfolioChartProps> = ({
                         ${formatNumber(Math.abs(sessionDollarChange))} ({isSessionPositive ? '+' : ''}{sessionPercentChange.toFixed(2)}%)
                       </Text>
                       <Text style={[styles.changeLabel, { color: themeColors.mutedForeground }]}>
-                        Prev Close
+                        {secondRowLabel}
                       </Text>
                     </>
                   ) : (

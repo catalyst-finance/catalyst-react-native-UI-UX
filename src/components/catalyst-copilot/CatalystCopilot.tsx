@@ -17,6 +17,7 @@ import {
   ListRenderItem,
   Animated,
   Easing,
+  ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -208,7 +209,12 @@ export const CatalystCopilot: React.FC<CatalystCopilotProps> = ({
   }, [messages.length, isStreaming, streamingState, onEventClick, onTickerClick]);
 
   const renderEmptyState = () => (
-    <View style={styles.emptyState}>
+    <ScrollView 
+      style={styles.emptyStateScroll}
+      contentContainerStyle={styles.emptyState}
+      keyboardShouldPersistTaps="handled"
+      showsVerticalScrollIndicator={false}
+    >
       <View style={[styles.aiIconLarge, { backgroundColor: themeColors.primary }]}>
         <Ionicons name="sparkles" size={32} color="#ffffff" />
       </View>
@@ -232,7 +238,7 @@ export const CatalystCopilot: React.FC<CatalystCopilotProps> = ({
           </TouchableOpacity>
         ))}
       </View>
-    </View>
+    </ScrollView>
   );
 
   const renderStreamingFooter = () => {
@@ -271,8 +277,8 @@ export const CatalystCopilot: React.FC<CatalystCopilotProps> = ({
   return (
     <KeyboardAvoidingView
       style={[styles.container, { backgroundColor: colors.background }]}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={0}
     >
       {!isConnected && (
         <View style={[styles.connectionBanner, { backgroundColor: isDark ? '#3a2020' : '#ffebee' }]}>
@@ -317,11 +323,14 @@ const styles = StyleSheet.create({
   messageList: {
     paddingVertical: 16,
   },
-  emptyState: {
+  emptyStateScroll: {
     flex: 1,
+  },
+  emptyState: {
     alignItems: 'center',
-    justifyContent: 'center',
     paddingHorizontal: 32,
+    paddingTop: 40,
+    paddingBottom: 20,
   },
   aiIconLarge: {
     width: 64,

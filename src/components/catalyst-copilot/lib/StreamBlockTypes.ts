@@ -167,6 +167,7 @@ export interface ArticleCardData {
   domain: string;
   ticker?: string;
   publishedAt?: string;
+  published_at?: string;  // Alternative field name from some APIs
   logoUrl?: string;
   imageUrl?: string;
   content?: string;

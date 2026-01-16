@@ -41,7 +41,7 @@ const EVENT_TYPE_CONFIG: Record<string, { label: string; color: string; icon: ke
   conference: { label: 'Conference', color: '#A855F7', icon: 'people' },
   regulatory: { label: 'Regulatory', color: '#DC2626', icon: 'business' },
   guidance_update: { label: 'Guidance', color: '#22C55E', icon: 'trending-up' },
-  partnership: { label: 'Partnership', color: '#06B6D4', icon: 'handshake' },
+  partnership: { label: 'Partnership', color: '#06B6D4', icon: 'people' },
   corporate: { label: 'Corporate', color: '#78716C', icon: 'business' },
   pricing: { label: 'Pricing', color: '#FBBF24', icon: 'pricetag' },
   defense_contract: { label: 'Defense', color: '#1E3A8A', icon: 'shield' },
@@ -50,6 +50,38 @@ const EVENT_TYPE_CONFIG: Record<string, { label: string; color: string; icon: ke
 
 function getEventConfig(type: string) {
   return EVENT_TYPE_CONFIG[type] || EVENT_TYPE_CONFIG.launch;
+}
+
+// Country to ISO 3166-1 alpha-2 code mapping for flags
+const countryToCode: Record<string, string> = {
+  'United States': 'us', 'USA': 'us', 'US': 'us',
+  'United Kingdom': 'gb', 'UK': 'gb',
+  'China': 'cn', 'Germany': 'de', 'France': 'fr', 'Japan': 'jp',
+  'Canada': 'ca', 'Australia': 'au', 'India': 'in', 'Brazil': 'br',
+  'Russia': 'ru', 'South Korea': 'kr', 'Mexico': 'mx', 'Spain': 'es',
+  'Italy': 'it', 'Netherlands': 'nl', 'Switzerland': 'ch', 'Sweden': 'se',
+  'Poland': 'pl', 'Belgium': 'be', 'Norway': 'no', 'Austria': 'at',
+  'Ireland': 'ie', 'Denmark': 'dk', 'Finland': 'fi', 'Portugal': 'pt',
+  'Greece': 'gr', 'Czech Republic': 'cz', 'Romania': 'ro', 'Hungary': 'hu',
+  'Turkey': 'tr', 'Israel': 'il', 'Singapore': 'sg', 'Thailand': 'th',
+  'Malaysia': 'my', 'Philippines': 'ph', 'Vietnam': 'vn', 'Indonesia': 'id',
+  'Saudi Arabia': 'sa', 'UAE': 'ae', 'South Africa': 'za', 'Nigeria': 'ng',
+  'Argentina': 'ar', 'Chile': 'cl', 'Colombia': 'co', 'Peru': 'pe',
+  'New Zealand': 'nz', 'Taiwan': 'tw', 'Hong Kong': 'hk', 'Egypt': 'eg',
+  'Pakistan': 'pk', 'Bangladesh': 'bd', 'Kenya': 'ke', 'Morocco': 'ma',
+  'Ukraine': 'ua', 'Czech': 'cz', 'Slovakia': 'sk', 'Slovenia': 'si',
+  'Croatia': 'hr', 'Serbia': 'rs', 'Bulgaria': 'bg', 'Lithuania': 'lt',
+  'Latvia': 'lv', 'Estonia': 'ee', 'Luxembourg': 'lu', 'Iceland': 'is',
+  'Euro Area': 'eu', 'European Union': 'eu', 'EU': 'eu',
+};
+
+/**
+ * Get country flag URL from flagcdn.com (PNG for React Native compatibility)
+ */
+function getCountryFlagUrl(country: string | undefined): string | null {
+  if (!country || country.trim().length === 0) return null;
+  const code = countryToCode[country] || country.toLowerCase().substring(0, 2);
+  return `https://flagcdn.com/w160/${code}.png`;
 }
 
 interface DataCardComponentProps {
@@ -83,6 +115,10 @@ export function DataCardComponent({
     const data = card.data as ArticleCardData;
     const publishedDate = data.publishedAt || data.published_at;
     
+    // Check if this is a macro article with a country - use flag instead of article image
+    const isMacroArticle = data.country && data.country.trim().length > 0;
+    const flagUrl = isMacroArticle ? getCountryFlagUrl(data.country) : null;
+    
     return (
       <TouchableOpacity
         style={[styles.card, { backgroundColor: cardColors.background, borderColor: cardColors.border }]}
@@ -90,8 +126,15 @@ export function DataCardComponent({
         activeOpacity={0.8}
       >
         <View style={styles.articleContent}>
-          {/* Article image or logo */}
-          {data.imageUrl ? (
+          {/* Article image, country flag (for macro), or logo */}
+          {isMacroArticle && flagUrl ? (
+            <ExpoImage
+              source={{ uri: flagUrl }}
+              style={styles.flagImage}
+              contentFit="cover"
+              cachePolicy="memory-disk"
+            />
+          ) : data.imageUrl ? (
             <ExpoImage
               source={{ uri: data.imageUrl }}
               style={styles.articleImage}
@@ -588,6 +631,12 @@ const styles = StyleSheet.create({
   },
   chartPlaceholderText: {
     fontSize: 12,
+  },
+  // Flag image styles for macro economics
+  flagImage: {
+    width: 80,
+    height: 56,
+    borderRadius: 8,
   },
 });
 

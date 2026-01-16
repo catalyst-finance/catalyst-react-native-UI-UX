@@ -12,6 +12,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import StockAPI, { StockData } from '../services/supabase/StockAPI';
 import HistoricalPriceAPI from '../services/supabase/HistoricalPriceAPI';
 import EventsAPI, { MarketEvent } from '../services/supabase/EventsAPI';
+import { fetchAggregatedFeed, NewsItem } from '../services/NewsService';
 
 // Default tickers
 const DEFAULT_HOLDINGS = ['TSLA', 'DFTX', 'TMC'];
@@ -40,6 +41,7 @@ interface AppDataState {
   stocksData: Record<string, StockData>;
   intradayData: Record<string, any[]>;
   events: Record<string, MarketEvent[]>;
+  newsItems: NewsItem[];
   
   // Actions
   refreshData: () => Promise<void>;
@@ -81,6 +83,7 @@ export const AppDataProvider: React.FC<AppDataProviderProps> = ({
   const [stocksData, setStocksData] = useState<Record<string, StockData>>({});
   const [intradayData, setIntradayData] = useState<Record<string, any[]>>({});
   const [events, setEvents] = useState<Record<string, MarketEvent[]>>({});
+  const [newsItems, setNewsItems] = useState<NewsItem[]>([]);
 
   const updateProgress = useCallback((progress: number, message: string) => {
     setLoadingProgress(progress);
@@ -203,6 +206,28 @@ export const AppDataProvider: React.FC<AppDataProviderProps> = ({
     );
   }, []);
 
+  // Load news from the past week
+  const loadNews = useCallback(async (tickers: string[]): Promise<NewsItem[]> => {
+    try {
+      // Get date from 7 days ago
+      const oneWeekAgo = new Date();
+      oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+      const dateGte = oneWeekAgo.toISOString();
+
+      const items = await fetchAggregatedFeed({
+        tickers: tickers.length > 0 ? tickers : undefined,
+        limit: 75,
+        collections: ['news', 'press_releases', 'earnings_transcripts', 'government_policy', 'macro_economics'],
+        dateGte,
+      });
+
+      return items;
+    } catch (error) {
+      console.error('[AppDataContext] Error loading news:', error);
+      return [];
+    }
+  }, []);
+
   // Preload all historical time ranges for smooth slider experience
   const preloadAllHistoricalRanges = useCallback(async (tickers: string[]): Promise<void> => {
     // Preload all time ranges for all tickers in parallel
@@ -240,13 +265,18 @@ export const AppDataProvider: React.FC<AppDataProviderProps> = ({
       updateProgress(55, 'Caching historical data...');
       await preloadAllHistoricalRanges(allTickers);
       
-      // Step 5: Load events (70%)
-      updateProgress(70, 'Loading events...');
+      // Step 5: Load events (65%)
+      updateProgress(65, 'Loading events...');
       const eventsData = await loadEvents(allTickers);
       setEvents(eventsData);
       
-      // Step 6: Prefetch logos (90%)
-      updateProgress(85, 'Loading company logos...');
+      // Step 6: Load news from past week (80%)
+      updateProgress(80, 'Loading news feed...');
+      const news = await loadNews(allTickers);
+      setNewsItems(news);
+      
+      // Step 7: Prefetch logos (90%)
+      updateProgress(90, 'Loading company logos...');
       await prefetchLogos(stocks);
       
       // Complete
@@ -265,7 +295,7 @@ export const AppDataProvider: React.FC<AppDataProviderProps> = ({
       setIsLoading(false);
       onReady?.();
     }
-  }, [loadTickers, loadStockData, loadIntradayData, preloadAllHistoricalRanges, loadEvents, prefetchLogos, updateProgress, onReady]);
+  }, [loadTickers, loadStockData, loadIntradayData, preloadAllHistoricalRanges, loadEvents, loadNews, prefetchLogos, updateProgress, onReady]);
 
   // Refresh data (for pull-to-refresh)
   const refreshData = useCallback(async () => {
@@ -306,6 +336,7 @@ export const AppDataProvider: React.FC<AppDataProviderProps> = ({
     stocksData,
     intradayData,
     events,
+    newsItems,
     refreshData,
   };
 

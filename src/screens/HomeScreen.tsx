@@ -1,6 +1,7 @@
-import React, { useState, useCallback, useMemo, useRef } from 'react';
-import { View, Text, ScrollView, StyleSheet, RefreshControl, ActivityIndicator, TouchableOpacity, Dimensions, Platform, Modal } from 'react-native';
+import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
+import { View, Text, ScrollView, StyleSheet, RefreshControl, ActivityIndicator, TouchableOpacity, Dimensions, Platform, Modal, FlatList } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAppData } from '../contexts/AppDataContext';
 import { colors } from '../constants/design-tokens';
@@ -14,8 +15,12 @@ import { TimeRange } from '../components/charts/StockLineChart';
 import { TEST_PORTFOLIO_HOLDINGS, PortfolioHolding } from '../utils/test-data-helper';
 import { MarketEvent } from '../services/supabase/EventsAPI';
 import { StockDetailScreen } from './StockDetailScreen';
+import NewsDetailScreen from './NewsDetailScreen';
+import NewsArticleCard from '../components/NewsArticleCard';
+import { NewsItem, fetchAggregatedFeed, NewsCollectionType } from '../services/NewsService';
 
 type HomeTab = 'news' | 'focus' | 'calendar';
+type NewsSubTab = 'stocks' | 'policy' | 'macro';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -31,6 +36,7 @@ export const HomeScreen: React.FC = () => {
     stocksData,
     intradayData,
     events,
+    newsItems: preloadedNews,
     refreshData,
   } = useAppData();
   
@@ -46,6 +52,21 @@ export const HomeScreen: React.FC = () => {
   // Stock detail modal state
   const [selectedTicker, setSelectedTicker] = useState<string | null>(null);
   const [showStockDetail, setShowStockDetail] = useState(false);
+  
+  // News feed state
+  const [newsItems, setNewsItems] = useState<NewsItem[]>([]);
+  const [newsLoading, setNewsLoading] = useState(false);
+  const [newsLoadingMore, setNewsLoadingMore] = useState(false);
+  const [newsError, setNewsError] = useState<string | null>(null);
+  const [selectedNewsItem, setSelectedNewsItem] = useState<NewsItem | null>(null);
+  const [showNewsDetail, setShowNewsDetail] = useState(false);
+  const [newsSubTab, setNewsSubTab] = useState<NewsSubTab>('stocks');
+  const [unseenNewsCount, setUnseenNewsCount] = useState(0);
+  const [lastSeenNewsTime, setLastSeenNewsTime] = useState<number>(0);
+  const seenArticleIdsRef = useRef<Set<string>>(new Set());
+  const unseenArticleIdsRef = useRef<Set<string>>(new Set());
+  const [hasMoreNews, setHasMoreNews] = useState(true);
+  const [oldestNewsDate, setOldestNewsDate] = useState<string | null>(null);
   
   // External accounts state
   const [connectedAccounts, setConnectedAccounts] = useState<Array<{
@@ -285,6 +306,199 @@ export const HomeScreen: React.FC = () => {
     return changes;
   }, [intradayData, stocksData, currentMarketPeriod]);
 
+  // Load last seen news time from storage
+  useEffect(() => {
+    const loadLastSeenTime = async () => {
+      try {
+        const stored = await AsyncStorage.getItem('lastSeenNewsTime');
+        if (stored) {
+          setLastSeenNewsTime(parseInt(stored, 10));
+        }
+      } catch (error) {
+        console.error('[HomeScreen] Failed to load last seen news time:', error);
+      }
+    };
+    loadLastSeenTime();
+  }, []);
+
+  // Initialize news from preloaded data
+  useEffect(() => {
+    if (preloadedNews.length > 0 && newsItems.length === 0) {
+      setNewsItems(preloadedNews);
+      // Set the oldest date for pagination
+      if (preloadedNews.length > 0) {
+        const oldestItem = preloadedNews[preloadedNews.length - 1];
+        setOldestNewsDate(oldestItem.publishedAt);
+      }
+      // Count unseen items (newer than last seen time)
+      if (lastSeenNewsTime > 0) {
+        const unseenItems = preloadedNews.filter(item => {
+          const itemTime = new Date(item.publishedAt).getTime();
+          return itemTime > lastSeenNewsTime;
+        });
+        // Store unseen article IDs
+        unseenArticleIdsRef.current = new Set(unseenItems.map(item => `${item.collection}-${item.id}`));
+        setUnseenNewsCount(unseenItems.length);
+      } else {
+        // If never seen, all items are unseen (capped at 99)
+        unseenArticleIdsRef.current = new Set(preloadedNews.slice(0, 99).map(item => `${item.collection}-${item.id}`));
+        setUnseenNewsCount(Math.min(preloadedNews.length, 99));
+      }
+    }
+  }, [preloadedNews, newsItems.length, lastSeenNewsTime]);
+
+  // Load more older news when user scrolls to bottom
+  const loadMoreNews = useCallback(async () => {
+    if (newsLoadingMore || !hasMoreNews || !oldestNewsDate) return;
+    
+    setNewsLoadingMore(true);
+    
+    try {
+      // Get all tickers from holdings and watchlist for personalized news
+      const allTickers = [...allHoldingsTickers, ...watchlistTickers];
+      
+      // Fetch news older than the oldest item we have
+      const olderItems = await fetchAggregatedFeed({
+        tickers: allTickers.length > 0 ? allTickers : undefined,
+        limit: 50,
+        collections: ['news', 'press_releases', 'earnings_transcripts', 'government_policy', 'macro_economics'],
+        dateLte: oldestNewsDate,
+      });
+      
+      if (olderItems.length === 0) {
+        setHasMoreNews(false);
+      } else {
+        // Filter out items we already have (by id)
+        const existingIds = new Set(newsItems.map(item => item.id));
+        const newItems = olderItems.filter(item => !existingIds.has(item.id));
+        
+        if (newItems.length === 0) {
+          setHasMoreNews(false);
+        } else {
+          setNewsItems(prev => [...prev, ...newItems]);
+          // Update oldest date
+          const newOldestItem = newItems[newItems.length - 1];
+          setOldestNewsDate(newOldestItem.publishedAt);
+        }
+      }
+    } catch (error) {
+      console.error('[HomeScreen] Failed to load more news:', error);
+    } finally {
+      setNewsLoadingMore(false);
+    }
+  }, [allHoldingsTickers, watchlistTickers, newsLoadingMore, hasMoreNews, oldestNewsDate, newsItems]);
+
+  // Handle scroll to detect when user is near bottom
+  const handleScroll = useCallback((event: any) => {
+    if (activeTab !== 'news') return;
+    
+    const { layoutMeasurement, contentOffset, contentSize } = event.nativeEvent;
+    const paddingToBottom = 200; // Start loading when 200px from bottom
+    
+    if (layoutMeasurement.height + contentOffset.y >= contentSize.height - paddingToBottom) {
+      loadMoreNews();
+    }
+  }, [activeTab, loadMoreNews]);
+
+  // Refresh news feed (pull-to-refresh)
+  const refreshNewsFeed = useCallback(async () => {
+    setNewsLoading(true);
+    setNewsError(null);
+    
+    try {
+      // Get all tickers from holdings and watchlist for personalized news
+      const allTickers = [...allHoldingsTickers, ...watchlistTickers];
+      
+      // Get date from 7 days ago for fresh data
+      const oneWeekAgo = new Date();
+      oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+      const dateGte = oneWeekAgo.toISOString();
+      
+      const items = await fetchAggregatedFeed({
+        tickers: allTickers.length > 0 ? allTickers : undefined,
+        limit: 75,
+        collections: ['news', 'press_releases', 'earnings_transcripts', 'government_policy', 'macro_economics'],
+        dateGte,
+      });
+      
+      setNewsItems(items);
+      setHasMoreNews(true);
+      
+      // Update oldest date for pagination
+      if (items.length > 0) {
+        const oldestItem = items[items.length - 1];
+        setOldestNewsDate(oldestItem.publishedAt);
+      }
+      
+      // Count unseen items (newer than last seen time)
+      if (items.length > 0) {
+        if (lastSeenNewsTime > 0) {
+          const unseenItems = items.filter(item => {
+            const itemTime = new Date(item.publishedAt).getTime();
+            return itemTime > lastSeenNewsTime;
+          });
+          // Store unseen article IDs (excluding already seen ones)
+          unseenItems.forEach(item => {
+            const articleId = `${item.collection}-${item.id}`;
+            if (!seenArticleIdsRef.current.has(articleId)) {
+              unseenArticleIdsRef.current.add(articleId);
+            }
+          });
+          setUnseenNewsCount(unseenArticleIdsRef.current.size);
+        } else {
+          // If never seen, all items are unseen (capped at 99)
+          items.slice(0, 99).forEach(item => {
+            const articleId = `${item.collection}-${item.id}`;
+            if (!seenArticleIdsRef.current.has(articleId)) {
+              unseenArticleIdsRef.current.add(articleId);
+            }
+          });
+          setUnseenNewsCount(Math.min(unseenArticleIdsRef.current.size, 99));
+        }
+      }
+    } catch (error) {
+      console.error('[HomeScreen] Failed to refresh news:', error);
+      setNewsError('Failed to load news feed');
+    } finally {
+      setNewsLoading(false);
+    }
+  }, [allHoldingsTickers, watchlistTickers, lastSeenNewsTime]);
+
+  // Save lastSeenNewsTime when all articles have been viewed
+  useEffect(() => {
+    if (unseenNewsCount === 0 && seenArticleIdsRef.current.size > 0) {
+      const saveLastSeenTime = async () => {
+        const now = Date.now();
+        setLastSeenNewsTime(now);
+        try {
+          await AsyncStorage.setItem('lastSeenNewsTime', now.toString());
+        } catch (error) {
+          console.error('[HomeScreen] Failed to save last seen news time:', error);
+        }
+      };
+      saveLastSeenTime();
+    }
+  }, [unseenNewsCount]);
+
+  // Handle news item click - also marks as seen
+  const handleNewsItemPress = useCallback((item: NewsItem) => {
+    // Mark this article as seen
+    const articleId = `${item.collection}-${item.id}`;
+    if (unseenArticleIdsRef.current.has(articleId) && !seenArticleIdsRef.current.has(articleId)) {
+      seenArticleIdsRef.current.add(articleId);
+      unseenArticleIdsRef.current.delete(articleId);
+      setUnseenNewsCount(prev => Math.max(0, prev - 1));
+    }
+    setSelectedNewsItem(item);
+    setShowNewsDetail(true);
+  }, []);
+
+  // Handle close news detail
+  const handleCloseNewsDetail = useCallback(() => {
+    setShowNewsDetail(false);
+    setSelectedNewsItem(null);
+  }, []);
+
   // Get shares for a specific ticker
   const getSharesForTicker = (ticker: string): number => {
     const holding = allPortfolioHoldings.find(h => h.ticker === ticker);
@@ -293,17 +507,21 @@ export const HomeScreen: React.FC = () => {
     return testHolding?.shares || 10;
   };
 
-  // Pull to refresh - uses context's refreshData
+  // Pull to refresh - uses context's refreshData and refreshes news if on news tab
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
       await refreshData();
+      // Also refresh news if on news tab
+      if (activeTab === 'news') {
+        await refreshNewsFeed();
+      }
     } catch (error) {
       console.error('Error refreshing:', error);
     } finally {
       setRefreshing(false);
     }
-  }, [refreshData]);
+  }, [refreshData, activeTab, refreshNewsFeed]);
 
   // Handle stock click
   const handleStockClick = (ticker: string) => {
@@ -398,6 +616,9 @@ export const HomeScreen: React.FC = () => {
   // Render tab button
   const renderTabButton = (tab: HomeTab, label: string) => {
     const isActive = activeTab === tab;
+    // Show badge with count on News tab whenever there are unseen items (even when active)
+    const showBadge = tab === 'news' && unseenNewsCount > 0;
+    
     return (
       <TouchableOpacity
         key={tab}
@@ -408,13 +629,22 @@ export const HomeScreen: React.FC = () => {
         ]}
         onPress={() => setActiveTab(tab)}
       >
-        <Text style={[
-          styles.tabButtonText,
-          { color: isActive ? themeColors.foreground : themeColors.mutedForeground },
-          isActive && styles.tabButtonTextActive
-        ]}>
-          {label}
-        </Text>
+        <View style={styles.tabButtonContent}>
+          <Text style={[
+            styles.tabButtonText,
+            { color: isActive ? themeColors.foreground : themeColors.mutedForeground },
+            isActive && styles.tabButtonTextActive
+          ]}>
+            {label}
+          </Text>
+          {showBadge && (
+            <View style={styles.unseenBadge}>
+              <Text style={styles.unseenBadgeText}>
+                {unseenNewsCount > 99 ? '99+' : unseenNewsCount}
+              </Text>
+            </View>
+          )}
+        </View>
       </TouchableOpacity>
     );
   };
@@ -458,6 +688,8 @@ export const HomeScreen: React.FC = () => {
         style={styles.scrollView}
         contentContainerStyle={styles.contentContainer}
         scrollEnabled={!isCrosshairActive}
+        onScroll={handleScroll}
+        scrollEventThrottle={400}
         refreshControl={
           <RefreshControl 
             refreshing={refreshing} 
@@ -608,13 +840,163 @@ export const HomeScreen: React.FC = () => {
           )}
 
           {activeTab === 'news' && (
-            <View style={styles.placeholderContainer}>
-              <Text style={[styles.placeholderTitle, { color: themeColors.foreground }]}>
-                News
-              </Text>
-              <Text style={[styles.placeholderText, { color: themeColors.mutedForeground }]}>
-                Market news and updates coming soon.
-              </Text>
+            <View style={styles.newsFeedContainer}>
+              {/* News Sub-tabs */}
+              <View style={styles.newsSubTabsContainer}>
+                <TouchableOpacity
+                  style={[
+                    styles.newsSubTab,
+                    { 
+                      backgroundColor: newsSubTab === 'stocks' 
+                        ? (isDark ? '#FFFFFF' : '#000000')
+                        : (isDark ? '#1C1C1E' : '#F2F2F7'),
+                      borderColor: 'transparent',
+                    },
+                    newsSubTab === 'stocks' && styles.newsSubTabActive,
+                  ]}
+                  onPress={() => setNewsSubTab('stocks')}
+                >
+                  <Text style={[
+                    styles.newsSubTabText,
+                    { 
+                      color: newsSubTab === 'stocks' 
+                        ? (isDark ? '#000000' : '#FFFFFF')
+                        : themeColors.mutedForeground 
+                    },
+                    newsSubTab === 'stocks' && styles.newsSubTabTextActive,
+                  ]}>
+                    Stocks
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.newsSubTab,
+                    { 
+                      backgroundColor: newsSubTab === 'policy' 
+                        ? (isDark ? '#FFFFFF' : '#000000')
+                        : (isDark ? '#1C1C1E' : '#F2F2F7'),
+                      borderColor: 'transparent',
+                    },
+                    newsSubTab === 'policy' && styles.newsSubTabActive,
+                  ]}
+                  onPress={() => setNewsSubTab('policy')}
+                >
+                  <Text style={[
+                    styles.newsSubTabText,
+                    { 
+                      color: newsSubTab === 'policy' 
+                        ? (isDark ? '#000000' : '#FFFFFF')
+                        : themeColors.mutedForeground 
+                    },
+                    newsSubTab === 'policy' && styles.newsSubTabTextActive,
+                  ]}>
+                    Policy
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.newsSubTab,
+                    { 
+                      backgroundColor: newsSubTab === 'macro' 
+                        ? (isDark ? '#FFFFFF' : '#000000')
+                        : (isDark ? '#1C1C1E' : '#F2F2F7'),
+                      borderColor: 'transparent',
+                    },
+                    newsSubTab === 'macro' && styles.newsSubTabActive,
+                  ]}
+                  onPress={() => setNewsSubTab('macro')}
+                >
+                  <Text style={[
+                    styles.newsSubTabText,
+                    { 
+                      color: newsSubTab === 'macro' 
+                        ? (isDark ? '#000000' : '#FFFFFF')
+                        : themeColors.mutedForeground 
+                    },
+                    newsSubTab === 'macro' && styles.newsSubTabTextActive,
+                  ]}>
+                    Macro
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {newsLoading && newsItems.length === 0 ? (
+                <View style={styles.newsLoadingContainer}>
+                  <ActivityIndicator size="large" color={themeColors.primary} />
+                  <Text style={[styles.newsLoadingText, { color: themeColors.mutedForeground }]}>
+                    Loading news feed...
+                  </Text>
+                </View>
+              ) : newsError && newsItems.length === 0 ? (
+                <View style={styles.newsErrorContainer}>
+                  <Text style={[styles.newsErrorText, { color: themeColors.mutedForeground }]}>
+                    {newsError}
+                  </Text>
+                  <TouchableOpacity 
+                    onPress={refreshNewsFeed}
+                    style={[styles.newsRetryButton, { backgroundColor: themeColors.primary }]}
+                  >
+                    <Text style={styles.newsRetryButtonText}>Retry</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : newsItems.length === 0 ? (
+                <View style={styles.newsEmptyContainer}>
+                  <Text style={[styles.newsEmptyText, { color: themeColors.mutedForeground }]}>
+                    No news available at the moment.
+                  </Text>
+                </View>
+              ) : (
+                <>
+                  {newsItems
+                    .filter((item) => {
+                      if (newsSubTab === 'stocks') {
+                        return ['news', 'press_releases', 'earnings_transcripts', 'price_targets', 'ownership'].includes(item.collection);
+                      }
+                      if (newsSubTab === 'policy') {
+                        return item.collection === 'government_policy';
+                      }
+                      if (newsSubTab === 'macro') {
+                        return item.collection === 'macro_economics';
+                      }
+                      return true;
+                    })
+                    .map((item) => (
+                      <NewsArticleCard
+                        key={`${item.collection}-${item.id}`}
+                        item={item}
+                        onPress={handleNewsItemPress}
+                      />
+                    ))}
+                  {/* Loading more indicator */}
+                  {newsLoadingMore && (
+                    <View style={styles.newsLoadingMore}>
+                      <ActivityIndicator size="small" color={themeColors.primary} />
+                      <Text style={[styles.newsLoadingMoreText, { color: themeColors.mutedForeground }]}>
+                        Loading older news...
+                      </Text>
+                    </View>
+                  )}
+                  {/* Load more button when not auto-loading */}
+                  {hasMoreNews && !newsLoadingMore && newsItems.length > 0 && (
+                    <TouchableOpacity 
+                      onPress={loadMoreNews}
+                      style={[styles.loadMoreButton, { borderColor: themeColors.border }]}
+                    >
+                      <Text style={[styles.loadMoreButtonText, { color: themeColors.mutedForeground }]}>
+                        Load older news
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                  {/* End of news indicator */}
+                  {!hasMoreNews && newsItems.length > 0 && (
+                    <View style={styles.endOfNewsContainer}>
+                      <Text style={[styles.endOfNewsText, { color: themeColors.mutedForeground }]}>
+                        You've reached the end
+                      </Text>
+                    </View>
+                  )}
+                </>
+              )}
             </View>
           )}
 
@@ -641,6 +1023,26 @@ export const HomeScreen: React.FC = () => {
           <StockDetailScreen 
             ticker={selectedTicker} 
             onClose={handleCloseStockDetail}
+          />
+        )}
+      </Modal>
+      
+      {/* News Detail Modal */}
+      <Modal
+        visible={showNewsDetail}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        onRequestClose={handleCloseNewsDetail}
+      >
+        {selectedNewsItem && (
+          <NewsDetailScreen
+            item={selectedNewsItem}
+            onClose={handleCloseNewsDetail}
+            onTickerPress={(ticker: string) => {
+              // Close news detail and open stock detail
+              handleCloseNewsDetail();
+              setTimeout(() => handleStockClick(ticker), 300);
+            }}
           />
         )}
       </Modal>
@@ -720,12 +1122,32 @@ const styles = StyleSheet.create({
   tabButtonActive: {
     borderBottomWidth: 2,
   },
+  tabButtonContent: {
+    position: 'relative',
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   tabButtonText: {
     fontSize: 14,
     fontWeight: '500',
   },
   tabButtonTextActive: {
     fontWeight: '600',
+  },
+  unseenBadge: {
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: '#EF4444',
+    marginLeft: 6,
+    paddingHorizontal: 5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  unseenBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
   },
   tabContent: {
     paddingHorizontal: 16,
@@ -767,5 +1189,100 @@ const styles = StyleSheet.create({
   calendarContainer: {
     flex: 1,
     minHeight: 600,
+  },
+  // News feed styles
+  newsFeedContainer: {
+    flex: 1,
+    paddingBottom: 20,
+  },
+  newsSubTabsContainer: {
+    flexDirection: 'row',
+    marginHorizontal: 16,
+    marginBottom: 16,
+    gap: 8,
+  },
+  newsSubTab: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  newsSubTabActive: {
+    borderWidth: 1,
+  },
+  newsSubTabText: {
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  newsSubTabTextActive: {
+    fontWeight: '700',
+  },
+  newsLoadingContainer: {
+    padding: 60,
+    alignItems: 'center',
+    gap: 12,
+  },
+  newsLoadingText: {
+    fontSize: 14,
+  },
+  newsErrorContainer: {
+    padding: 40,
+    alignItems: 'center',
+    gap: 16,
+  },
+  newsErrorText: {
+    fontSize: 14,
+    textAlign: 'center',
+  },
+  newsRetryButton: {
+    paddingHorizontal: 24,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  newsRetryButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  newsEmptyContainer: {
+    padding: 40,
+    alignItems: 'center',
+  },
+  newsEmptyText: {
+    fontSize: 14,
+    textAlign: 'center',
+  },
+  newsLoadingMore: {
+    padding: 20,
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  newsLoadingMoreText: {
+    fontSize: 13,
+  },
+  loadMoreButton: {
+    marginHorizontal: 16,
+    marginVertical: 16,
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  loadMoreButtonText: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  endOfNewsContainer: {
+    padding: 24,
+    alignItems: 'center',
+  },
+  endOfNewsText: {
+    fontSize: 13,
+    fontStyle: 'italic',
   },
 });
