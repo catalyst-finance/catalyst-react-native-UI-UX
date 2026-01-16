@@ -2408,13 +2408,20 @@ export const StockLineChart: React.FC<StockLineChartProps> = ({
       )}
       
       {/* Price Target Modal */}
-      <PriceTargetModal
-        isOpen={priceTargetModalOpen}
-        onClose={() => setPriceTargetModalOpen(false)}
-        title={priceTargetModalType === 'high' ? 'Highest' : 'Lowest'}
-        priceTargets={priceTargets}
-        type={priceTargetModalType}
-      />
+      {(() => {
+        console.log('[StockLineChart] Rendering modal with priceTargets:', priceTargets?.length || 0);
+        console.log('[StockLineChart] Modal open:', priceTargetModalOpen);
+        console.log('[StockLineChart] Modal type:', priceTargetModalType);
+        return (
+          <PriceTargetModal
+            isOpen={priceTargetModalOpen}
+            onClose={() => setPriceTargetModalOpen(false)}
+            title={priceTargetModalType === 'high' ? 'Highest' : 'Lowest'}
+            priceTargets={priceTargets}
+            type={priceTargetModalType}
+          />
+        );
+      })()}
     </View>
   );
 };

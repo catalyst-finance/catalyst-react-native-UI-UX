@@ -40,6 +40,12 @@ export function PriceTargetModal({
   const { isDark } = useTheme();
   const themeColors = isDark ? colors.dark : colors.light;
 
+  // Debug logging
+  console.log('[PriceTargetModal] isOpen:', isOpen);
+  console.log('[PriceTargetModal] priceTargets count:', priceTargets?.length || 0);
+  console.log('[PriceTargetModal] type:', type);
+  console.log('[PriceTargetModal] priceTargets:', JSON.stringify(priceTargets, null, 2));
+
   // Filter and sort based on type
   const sortedTargets = [...priceTargets]
     .filter((t) => t && typeof t.price_target === 'number')
@@ -51,6 +57,8 @@ export function PriceTargetModal({
       }
     })
     .slice(0, 10); // Take top/bottom 10
+  
+  console.log('[PriceTargetModal] sortedTargets count:', sortedTargets.length);
 
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
