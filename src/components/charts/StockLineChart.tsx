@@ -9,10 +9,10 @@
  */
 
 import React, { useMemo, useState, useRef, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, Animated, PanResponder } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, Animated, PanResponder, Switch } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
 import Slider from '@react-native-community/slider';
-import Svg, { Path, Line, Rect, Defs, ClipPath, Circle } from 'react-native-svg';
+import Svg, { Path, Line, Rect, Defs, ClipPath, Circle, Text as SvgText } from 'react-native-svg';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import { AnimatedPrice } from '../ui/AnimatedPrice';
@@ -30,6 +30,16 @@ import { colors } from '../../constants/design-tokens';
 import { getEventTypeHexColor } from '../../utils/event-formatting';
 import { getEventIcon } from '../../utils/event-icons';
 import { Ionicons } from '@expo/vector-icons';
+import { PriceTargetsService, PriceTarget } from '../../services/PriceTargetsService';
+import { 
+  calculatePriceTargetStats, 
+  formatTargetPrice, 
+  calculateTargetY, 
+  adjustLabelPositions,
+  getPriceTargetLineConfigs,
+  PRICE_TARGET_DASH_ARRAY,
+  PriceTargetStats
+} from '../../utils/price-target-utils';
 
 interface DataPoint {
   timestamp: number | string;
@@ -86,6 +96,9 @@ interface StockLineChartProps {
   onDisplayValuesChange?: (values: { displayPrice: number; displayChange: number; displayChangePercent: number; isPositive: boolean }) => void;
   hideHeader?: boolean; // Hide the header section (for use in PortfolioChart)
   showTickerLogos?: boolean; // Show ticker logos instead of colored dots (for portfolio view)
+  miniMode?: boolean; // Mini chart mode - skip price target fetching
+  showPriceTargets?: boolean; // Control whether to show price target lines (defaults to true when showUpcomingRange)
+  priceTargets?: PriceTarget[]; // Optional externally provided price targets
 }
 
 const TIME_RANGES: TimeRange[] = ['1D', '1W', '1M', '3M', 'YTD', '1Y', '5Y'];
@@ -116,15 +129,104 @@ export const StockLineChart: React.FC<StockLineChartProps> = ({
   onDisplayValuesChange,
   hideHeader = false,
   showTickerLogos = false,
+  miniMode = false,
+  showPriceTargets,
+  priceTargets: externalPriceTargets,
 }) => {
   const { isDark } = useTheme();
   const themeColors = isDark ? colors.dark : colors.light;
   const [selectedTimeRange, setSelectedTimeRange] = useState<TimeRange>(defaultTimeRange);
   const [selectedFutureRange, setSelectedFutureRange] = useState<FutureRange>(defaultFutureRange);
   
+  // Price targets state - Requirement 1.1, 5.1, 5.2
+  const [fetchedPriceTargets, setFetchedPriceTargets] = useState<PriceTarget[]>([]);
+  
+  // User toggle for price targets visibility (defaults to false, enabled when pastDays >= 30)
+  const [priceTargetsEnabled, setPriceTargetsEnabled] = useState(false);
+  
   // Track slider widths for accurate label positioning
   const [pastSliderWidth, setPastSliderWidth] = useState(0);
   const [futureSliderWidth, setFutureSliderWidth] = useState(0);
+  
+  // Track when sliders are being actively dragged for label animation
+  const [isPastSliderActive, setIsPastSliderActive] = useState(false);
+  const [isFutureSliderActive, setIsFutureSliderActive] = useState(false);
+  
+  // Animated values for slider label effects
+  const pastLabelScale = useRef(new Animated.Value(1)).current;
+  const pastLabelTranslateY = useRef(new Animated.Value(0)).current;
+  const futureLabelScale = useRef(new Animated.Value(1)).current;
+  const futureLabelTranslateY = useRef(new Animated.Value(0)).current;
+  
+  // Animate past slider label when active state changes
+  useEffect(() => {
+    if (isPastSliderActive) {
+      Animated.parallel([
+        Animated.spring(pastLabelScale, {
+          toValue: 1.15,
+          useNativeDriver: true,
+          friction: 8,
+          tension: 100,
+        }),
+        Animated.spring(pastLabelTranslateY, {
+          toValue: -15,
+          useNativeDriver: true,
+          friction: 8,
+          tension: 100,
+        }),
+      ]).start();
+    } else {
+      Animated.parallel([
+        Animated.spring(pastLabelScale, {
+          toValue: 1,
+          useNativeDriver: true,
+          friction: 8,
+          tension: 100,
+        }),
+        Animated.spring(pastLabelTranslateY, {
+          toValue: 0,
+          useNativeDriver: true,
+          friction: 8,
+          tension: 100,
+        }),
+      ]).start();
+    }
+  }, [isPastSliderActive, pastLabelScale, pastLabelTranslateY]);
+  
+  // Animate future slider label when active state changes
+  useEffect(() => {
+    if (isFutureSliderActive) {
+      Animated.parallel([
+        Animated.spring(futureLabelScale, {
+          toValue: 1.15,
+          useNativeDriver: true,
+          friction: 8,
+          tension: 100,
+        }),
+        Animated.spring(futureLabelTranslateY, {
+          toValue: -15,
+          useNativeDriver: true,
+          friction: 8,
+          tension: 100,
+        }),
+      ]).start();
+    } else {
+      Animated.parallel([
+        Animated.spring(futureLabelScale, {
+          toValue: 1,
+          useNativeDriver: true,
+          friction: 8,
+          tension: 100,
+        }),
+        Animated.spring(futureLabelTranslateY, {
+          toValue: 0,
+          useNativeDriver: true,
+          friction: 8,
+          tension: 100,
+        }),
+      ]).start();
+    }
+  }, [isFutureSliderActive, futureLabelScale, futureLabelTranslateY]);
   
   // Convert slider position (0-100) to days with smooth logarithmic curve
   // This creates smooth transitions: 1D → 1W → 1M → 1Y → 5Y
@@ -233,6 +335,14 @@ export const StockLineChart: React.FC<StockLineChartProps> = ({
   const [pastDays, setPastDays] = useState<number>(initialPastDays);
   const [futureDays, setFutureDays] = useState<number>(getInitialFutureDays(defaultFutureRange));
   const [pastSliderPosition, setPastSliderPosition] = useState<number>(daysToSliderPosition(initialPastDays));
+  
+  // Price targets are only available when past slider shows 3M or greater
+  // getDaysLabel shows "3M" when days >= 75 (Math.round(75/30) = 3)
+  const priceTargetsAvailable = pastDays >= 75;
+  
+  // Determine if price targets should be shown (respects availability, user toggle, and miniMode)
+  const shouldShowPriceTargets = priceTargetsAvailable && priceTargetsEnabled && !miniMode;
+  
   const containerRef = useRef<View>(null);
   const [containerWidth, setContainerWidth] = useState(propWidth || Dimensions.get('window').width - 32);
   const chartContainerRef = useRef<View>(null);
@@ -277,8 +387,8 @@ export const StockLineChart: React.FC<StockLineChartProps> = ({
   const filteredData = useMemo(() => {
     if (!data || data.length === 0) return data;
     
-    // For 1D view, show all intraday data
-    if (selectedTimeRange === '1D') return data;
+    // For 1D view (pastDays <= 1), show all intraday data
+    if (pastDays <= 1) return data;
     
     // Convert trading days to calendar days for filtering
     const calendarDays = tradingDaysToCalendarDays(pastDays);
@@ -295,16 +405,16 @@ export const StockLineChart: React.FC<StockLineChartProps> = ({
     
     // Ensure we always have at least 2 points for the chart
     return filtered.length >= 2 ? filtered : data.slice(-2);
-  }, [data, pastDays, selectedTimeRange, tradingDaysToCalendarDays]);
+  }, [data, pastDays, tradingDaysToCalendarDays]);
 
   // Calculate crosshair display values
   const firstDataPointPrice = filteredData && filteredData.length > 0 ? filteredData[0].value : currentPrice;
   const lastDataPointPrice = filteredData && filteredData.length > 0 ? filteredData[filteredData.length - 1].value : currentPrice;
   
-  // For 1D view, use previousClose as reference and currentPrice as the end value
+  // For 1D view (pastDays <= 1), use previousClose as reference and currentPrice as the end value
   // For other periods, use first/last data points
-  const referencePrice = selectedTimeRange === '1D' && previousClose ? previousClose : firstDataPointPrice;
-  const endPrice = selectedTimeRange === '1D' ? currentPrice : lastDataPointPrice;
+  const referencePrice = pastDays <= 1 && previousClose ? previousClose : firstDataPointPrice;
+  const endPrice = pastDays <= 1 ? currentPrice : lastDataPointPrice;
   
   // Calculate period-based change (relative to reference price)
   const periodPriceChange = endPrice - referencePrice;
@@ -457,6 +567,51 @@ export const StockLineChart: React.FC<StockLineChartProps> = ({
     isCrosshairEnabledRef.current = isCrosshairEnabled;
   }, [isCrosshairEnabled]);
 
+  // Fetch price targets on mount (skip if miniMode) - Requirements 1.1, 5.1, 5.2
+  useEffect(() => {
+    // Requirement 5.1: Skip fetching in mini mode
+    if (miniMode) {
+      return;
+    }
+    
+    // Skip if no ticker provided
+    if (!ticker) {
+      return;
+    }
+    
+    // Skip if external price targets are provided
+    if (externalPriceTargets) {
+      return;
+    }
+    
+    // Requirement 1.1: Fetch price targets from backend API
+    const fetchTargets = async () => {
+      try {
+        const targets = await PriceTargetsService.fetchPriceTargets(ticker);
+        setFetchedPriceTargets(targets);
+      } catch (error) {
+        // Requirement 1.3: Return empty array on error (handled by service)
+        setFetchedPriceTargets([]);
+      }
+    };
+    
+    fetchTargets();
+  }, [ticker, miniMode, externalPriceTargets]);
+  
+  // Use external price targets if provided, otherwise use fetched ones
+  const priceTargets = externalPriceTargets || fetchedPriceTargets;
+  
+  // Calculate price target stats - Requirements 2.1, 2.2, 2.3, 2.4
+  const priceTargetStats = useMemo(() => {
+    if (!shouldShowPriceTargets || priceTargets.length === 0) {
+      console.log(`[StockLineChart ${ticker}] Price targets not shown: shouldShow=${shouldShowPriceTargets}, count=${priceTargets.length}`);
+      return null;
+    }
+    const stats = calculatePriceTargetStats(priceTargets);
+    console.log(`[StockLineChart ${ticker}] Price target stats:`, stats);
+    return stats;
+  }, [priceTargets, shouldShowPriceTargets, ticker]);
+
   // Note: Logo prefetching is now handled by AppDataContext using expo-image
   // which has better caching than React Native's Image.prefetch
 
@@ -475,8 +630,8 @@ export const StockLineChart: React.FC<StockLineChartProps> = ({
   const futureWidthPercent = showUpcomingRange ? 40 : 0;
   const pastWidth = (width * pastWidthPercent) / 100;
 
-  // Check if we're in intraday mode
-  const isIntradayMode = selectedTimeRange === '1D';
+  // Check if we're in intraday mode (based on pastDays for smooth transitions)
+  const isIntradayMode = pastDays <= 1;
   
   // Calculate the fixed starting point for the chart (right edge of past section)
   // The chart should always end at the same pixel position
@@ -519,11 +674,22 @@ export const StockLineChart: React.FC<StockLineChartProps> = ({
     return `${years}Y`;
   };
 
+  // Track previous slider labels for haptic feedback on label change
+  const lastPastLabel = useRef<string>('');
+  const lastFutureLabel = useRef<string>('');
+
   // Handle past slider change (logarithmic scaling)
   const handlePastSliderChange = (position: number) => {
     setPastSliderPosition(position);
     const days = sliderPositionToDays(position);
     setPastDays(days);
+    
+    // Trigger haptic feedback only when label changes
+    const currentLabel = getDaysLabel(days);
+    if (currentLabel !== lastPastLabel.current) {
+      Haptics.selectionAsync();
+      lastPastLabel.current = currentLabel;
+    }
     
     // Map to closest TimeRange for backward compatibility
     let range: TimeRange;
@@ -543,6 +709,14 @@ export const StockLineChart: React.FC<StockLineChartProps> = ({
   // Handle future slider change (continuous days, range: 7 to 1095)
   const handleFutureSliderChange = (days: number) => {
     setFutureDays(days);
+    
+    // Trigger haptic feedback only when label changes
+    const currentLabel = getDaysLabel(days);
+    if (currentLabel !== lastFutureLabel.current) {
+      Haptics.selectionAsync();
+      lastFutureLabel.current = currentLabel;
+    }
+    
     // Map to closest FutureRange for backward compatibility
     let range: FutureRange;
     if (days <= 90) range = '3M';
@@ -649,6 +823,9 @@ export const StockLineChart: React.FC<StockLineChartProps> = ({
     // Determine session boundaries
     let preMarketEndX = 0;
     let regularHoursEndX = 0;
+    // Calculate blend factor for smooth transition between intraday and multi-day views
+    // 1 at 1D, 0 at 2D+, linear blend between
+    const blendFactor = pastDays <= 1 ? 1 : pastDays <= 2 ? 2 - pastDays : 0;
     
     for (let i = 0; i < filteredData.length; i++) {
       const point = filteredData[i];
@@ -658,26 +835,33 @@ export const StockLineChart: React.FC<StockLineChartProps> = ({
         ? new Date(point.timestamp).getTime() 
         : point.timestamp;
       
+      // Calculate index-based position
+      const pointsFromEnd = filteredData.length - 1 - i;
+      const totalPoints = filteredData.length;
+      const indexBasedX = chartEndX - (pointsFromEnd / totalPoints) * pastWidth;
+      
       let x: number;
-      if (isIntradayMode) {
+      if (blendFactor === 1) {
         x = calculateIntradayXPosition(timestamp, marketHours, pastWidth);
-      } else if (pastDays <= 30) {
-        // For short ranges, use index-based positioning
-        const pointsFromEnd = filteredData.length - 1 - i;
-        const totalPoints = filteredData.length;
-        x = chartEndX - (pointsFromEnd / totalPoints) * pastWidth;
+      } else if (blendFactor === 0) {
+        if (pastDays <= 30) {
+          x = indexBasedX;
+        } else {
+          const now = Date.now();
+          const oldestTimestamp = filteredData[0].timestamp;
+          const oldestTime = typeof oldestTimestamp === 'string' 
+            ? new Date(oldestTimestamp).getTime() 
+            : oldestTimestamp;
+          
+          const totalDuration = now - oldestTime;
+          const timeFromOldest = timestamp - oldestTime;
+          
+          x = chartEndX - (pastWidth * (1 - timeFromOldest / totalDuration));
+        }
       } else {
-        // For longer ranges, use time-based positioning
-        const now = Date.now();
-        const oldestTimestamp = filteredData[0].timestamp;
-        const oldestTime = typeof oldestTimestamp === 'string' 
-          ? new Date(oldestTimestamp).getTime() 
-          : oldestTimestamp;
-        
-        const totalDuration = now - oldestTime;
-        const timeFromOldest = timestamp - oldestTime;
-        
-        x = chartEndX - (pastWidth * (1 - timeFromOldest / totalDuration));
+        // Blend between intraday and index-based positioning
+        const intradayX = calculateIntradayXPosition(timestamp, marketHours, pastWidth);
+        x = intradayX * blendFactor + indexBasedX * (1 - blendFactor);
       }
       
       // Check for session boundaries (handle both hyphenated and non-hyphenated versions)
@@ -692,33 +876,46 @@ export const StockLineChart: React.FC<StockLineChartProps> = ({
 
     // Convert data points to SVG coordinates
     // Position points so the most recent data always ends at chartEndX
+    // Use blending for smooth transition between intraday and multi-day views
+    
     const points: Point[] = filteredData.map((point, i) => {
       const timestamp = typeof point.timestamp === 'string' 
         ? new Date(point.timestamp).getTime() 
         : point.timestamp;
       
       let x: number;
-      if (isIntradayMode) {
+      
+      // Calculate index-based position (used for multi-day views)
+      const pointsFromEnd = filteredData.length - 1 - i;
+      const totalPoints = filteredData.length;
+      const indexBasedX = chartEndX - (pointsFromEnd / totalPoints) * pastWidth;
+      
+      if (blendFactor === 1) {
+        // Pure intraday mode
         x = calculateIntradayXPosition(timestamp, marketHours, pastWidth);
-      } else if (pastDays <= 30) {
-        // For short ranges (up to 1 month), use index-based positioning to skip weekends
-        // This ensures even spacing between trading days
-        const pointsFromEnd = filteredData.length - 1 - i;
-        const totalPoints = filteredData.length;
-        x = chartEndX - (pointsFromEnd / totalPoints) * pastWidth;
+      } else if (blendFactor === 0) {
+        // Pure multi-day mode
+        if (pastDays <= 30) {
+          // For short ranges (up to 1 month), use index-based positioning to skip weekends
+          x = indexBasedX;
+        } else {
+          // For longer ranges, use time-based positioning
+          const now = Date.now();
+          const oldestTimestamp = filteredData[0].timestamp;
+          const oldestTime = typeof oldestTimestamp === 'string' 
+            ? new Date(oldestTimestamp).getTime() 
+            : oldestTimestamp;
+          
+          const totalDuration = now - oldestTime;
+          const timeFromOldest = timestamp - oldestTime;
+          
+          // Map to pastWidth, ending at the right edge
+          x = chartEndX - (pastWidth * (1 - timeFromOldest / totalDuration));
+        }
       } else {
-        // For longer ranges, use time-based positioning
-        const now = Date.now();
-        const oldestTimestamp = filteredData[0].timestamp;
-        const oldestTime = typeof oldestTimestamp === 'string' 
-          ? new Date(oldestTimestamp).getTime() 
-          : oldestTimestamp;
-        
-        const totalDuration = now - oldestTime;
-        const timeFromOldest = timestamp - oldestTime;
-        
-        // Map to pastWidth, ending at the right edge
-        x = chartEndX - (pastWidth * (1 - timeFromOldest / totalDuration));
+        // Blend between intraday and index-based positioning for smooth transition
+        const intradayX = calculateIntradayXPosition(timestamp, marketHours, pastWidth);
+        x = intradayX * blendFactor + indexBasedX * (1 - blendFactor);
       }
       
       // Y position with margins (matching web app)
@@ -786,7 +983,7 @@ export const StockLineChart: React.FC<StockLineChartProps> = ({
       maxY,
       valueRange,
     };
-  }, [filteredData, pastWidth, height, previousClose, currentPrice, isIntradayMode, previousDayData, selectedTimeRange, pastDays]);
+  }, [filteredData, pastWidth, height, previousClose, currentPrice, isIntradayMode, previousDayData, pastDays]);
 
   // Memoize data point positions for faster crosshair lookup
   const dataPointPositions = useMemo(() => {
@@ -799,36 +996,46 @@ export const StockLineChart: React.FC<StockLineChartProps> = ({
     const tradingDay = getTradingDayFromData(dataWithNumericTimestamps);
     const marketHours = getMarketHoursBounds(tradingDay);
     
+    // Calculate blend factor for smooth transition
+    const blendFactor = pastDays <= 1 ? 1 : pastDays <= 2 ? 2 - pastDays : 0;
+    
     return filteredData.map((point, index) => {
       const timestamp = typeof point.timestamp === 'string' 
         ? new Date(point.timestamp).getTime() 
         : point.timestamp;
       
+      // Calculate index-based position
+      const pointsFromEnd = filteredData.length - 1 - index;
+      const totalPoints = filteredData.length;
+      const indexBasedX = chartEndX - (pointsFromEnd / totalPoints) * pastWidth;
+      
       let x: number;
-      if (isIntradayMode) {
+      if (blendFactor === 1) {
         x = calculateIntradayXPosition(timestamp, marketHours, pastWidth);
-      } else if (pastDays <= 30) {
-        // For short ranges, use index-based positioning
-        const pointsFromEnd = filteredData.length - 1 - index;
-        const totalPoints = filteredData.length;
-        x = chartEndX - (pointsFromEnd / totalPoints) * pastWidth;
+      } else if (blendFactor === 0) {
+        if (pastDays <= 30) {
+          x = indexBasedX;
+        } else {
+          const now = Date.now();
+          const oldestTimestamp = filteredData[0].timestamp;
+          const oldestTime = typeof oldestTimestamp === 'string' 
+            ? new Date(oldestTimestamp).getTime() 
+            : oldestTimestamp;
+          
+          const totalDuration = now - oldestTime;
+          const timeFromOldest = timestamp - oldestTime;
+          
+          x = chartEndX - (pastWidth * (1 - timeFromOldest / totalDuration));
+        }
       } else {
-        // For longer ranges, use time-based positioning
-        const now = Date.now();
-        const oldestTimestamp = filteredData[0].timestamp;
-        const oldestTime = typeof oldestTimestamp === 'string' 
-          ? new Date(oldestTimestamp).getTime() 
-          : oldestTimestamp;
-        
-        const totalDuration = now - oldestTime;
-        const timeFromOldest = timestamp - oldestTime;
-        
-        x = chartEndX - (pastWidth * (1 - timeFromOldest / totalDuration));
+        // Blend between intraday and index-based positioning
+        const intradayX = calculateIntradayXPosition(timestamp, marketHours, pastWidth);
+        x = intradayX * blendFactor + indexBasedX * (1 - blendFactor);
       }
       
       return { x, index, value: point.value, timestamp };
     });
-  }, [filteredData, isIntradayMode, selectedTimeRange, pastWidth, pastDays, chartEndX]);
+  }, [filteredData, pastWidth, pastDays, chartEndX]);
 
   // Handle touch interaction for crosshair - use useCallback to stabilize reference
   const handleTouch = useCallback((touchX: number, touchY: number) => {
@@ -1342,6 +1549,16 @@ export const StockLineChart: React.FC<StockLineChartProps> = ({
               const chartHeight = height - margin.top - margin.bottom;
               const { minY, valueRange } = chartData;
               
+              // Get market hours for intraday positioning
+              const dataWithNumericTimestamps = filteredData.map(d => ({
+                timestamp: typeof d.timestamp === 'string' ? new Date(d.timestamp).getTime() : d.timestamp
+              }));
+              const tradingDay = getTradingDayFromData(dataWithNumericTimestamps);
+              const marketHours = getMarketHoursBounds(tradingDay);
+              
+              // Calculate blend factor for smooth transition (same as chart line)
+              const blendFactor = pastDays <= 1 ? 1 : pastDays <= 2 ? 2 - pastDays : 0;
+              
               // Sort by dot size descending so smaller dots render on top
               const eventsWithPositions = pastEvents
                 .map((event, index) => {
@@ -1354,23 +1571,51 @@ export const StockLineChart: React.FC<StockLineChartProps> = ({
                     return null;
                   }
                   
-                  // Calculate X position as percentage
-                  const timeFromOldest = eventTimestamp - oldestTime;
-                  const xPercent = (timeFromOldest / totalDuration) * 100;
+                  // Calculate X position using the same logic as the chart line
+                  let xPosition: number;
                   
-                  // Find the closest data point to get Y position
-                  let closestDataPoint = filteredData[0];
+                  // Calculate index-based position (find closest data point index)
+                  let closestIndex = 0;
                   let minTimeDiff = Infinity;
-                  for (const point of filteredData) {
+                  for (let i = 0; i < filteredData.length; i++) {
+                    const point = filteredData[i];
                     const pointTime = typeof point.timestamp === 'string' 
                       ? new Date(point.timestamp).getTime() 
                       : point.timestamp;
                     const timeDiff = Math.abs(pointTime - eventTimestamp);
                     if (timeDiff < minTimeDiff) {
                       minTimeDiff = timeDiff;
-                      closestDataPoint = point;
+                      closestIndex = i;
                     }
                   }
+                  
+                  const pointsFromEnd = filteredData.length - 1 - closestIndex;
+                  const totalPoints = filteredData.length;
+                  const indexBasedX = pastWidth - (pointsFromEnd / totalPoints) * pastWidth;
+                  
+                  if (blendFactor === 1) {
+                    // Pure intraday mode - use market hours positioning
+                    xPosition = calculateIntradayXPosition(eventTimestamp, marketHours, pastWidth);
+                  } else if (blendFactor === 0) {
+                    if (pastDays <= 30) {
+                      // Index-based positioning
+                      xPosition = indexBasedX;
+                    } else {
+                      // Time-based positioning
+                      const timeFromOldest = eventTimestamp - oldestTime;
+                      xPosition = (timeFromOldest / totalDuration) * pastWidth;
+                    }
+                  } else {
+                    // Blend between intraday and index-based positioning
+                    const intradayX = calculateIntradayXPosition(eventTimestamp, marketHours, pastWidth);
+                    xPosition = intradayX * blendFactor + indexBasedX * (1 - blendFactor);
+                  }
+                  
+                  // Convert to percentage
+                  const xPercent = (xPosition / pastWidth) * 100;
+                  
+                  // Find the closest data point to get Y position
+                  const closestDataPoint = filteredData[closestIndex];
                   
                   // Calculate Y position in pixels using the same formula as the chart
                   const yPosition = margin.top + chartHeight - ((closestDataPoint.value - minY) / valueRange) * chartHeight;
@@ -1613,6 +1858,143 @@ export const StockLineChart: React.FC<StockLineChartProps> = ({
                 style={StyleSheet.absoluteFill}
                 pointerEvents="none"
               />
+
+              {/* Price Target Lines - Requirements 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7 */}
+              {/* Price Target Labels - Requirements 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 6.1, 6.2, 6.3 */}
+              {shouldShowPriceTargets && priceTargetStats && (() => {
+                // Get chart layout margins (matching chartData calculation)
+                const margin = { top: 40, bottom: 20 };
+                const chartHeight = height - margin.top - margin.bottom;
+                const { minY, maxY, valueRange } = chartData;
+                
+                // Get line configurations for each target type
+                const lineConfigs = getPriceTargetLineConfigs(priceTargetStats);
+                
+                // Calculate the future section width for positioning
+                const futureWidth = (width * futureWidthPercent) / 100;
+                
+                // Analyst price targets represent 1 year (365 days) into the future
+                // Calculate the X position where lines should end based on the current future slider range
+                const targetHorizonDays = 365; // 1 year target horizon
+                const targetXRatio = Math.min(1, targetHorizonDays / futureDays); // Clamp to 1 if slider < 1 year
+                
+                // Label width estimation (for positioning lines to end before labels)
+                const estimatedLabelWidth = 75; // Approximate width of "High: $548" label
+                const labelPadding = 8;
+                
+                // Lines end at the target horizon position, but leave room for labels
+                // If target horizon is beyond the visible range, lines go to the edge minus label space
+                const lineEndX = Math.min(
+                  futureWidth * targetXRatio,
+                  futureWidth - estimatedLabelWidth - labelPadding
+                );
+                
+                // Starting Y position for diagonal lines (current price point)
+                // Use scaledLastPointY which is the Y position of the last data point
+                const startY = scaledLastPointY;
+                
+                // Calculate the Y position at the line end point (interpolated based on where line ends)
+                // The progress determines how far along the line we are toward the 1-year target
+                const progress = lineEndX / (futureWidth * targetXRatio);
+                
+                // Calculate Y positions for each line at the LINE END POINT (not the full target)
+                // This is the key: we interpolate based on how far the line extends
+                const linesWithEndY = lineConfigs.map(config => {
+                  // Full target Y position (where line would end at 1 year)
+                  const fullTargetY = calculateTargetY(config.price, minY, maxY, chartHeight, margin.top);
+                  // Interpolated Y position at the actual line endpoint
+                  const lineEndY = startY + (fullTargetY - startY) * progress;
+                  return { ...config, fullTargetY, lineEndY };
+                });
+                
+                // Requirement 4.5: Apply overlap prevention algorithm to LINE END Y positions
+                const labelHeight = 18; // Approximate height of label text
+                const labelPositions = adjustLabelPositions(
+                  linesWithEndY.map(line => ({ y: line.lineEndY, height: labelHeight })),
+                  22, // Minimum spacing between labels
+                  chartHeight,
+                  margin.top
+                );
+                
+                // Combine line data with adjusted label positions
+                const linesWithLabels = linesWithEndY.map((line, index) => ({
+                  ...line,
+                  adjustedLabelY: labelPositions[index]?.y ?? line.lineEndY,
+                }));
+                
+                // Requirements 6.1, 6.2: Theme-based label styling
+                const labelBackgroundColor = isDark 
+                  ? 'rgba(0, 0, 0, 0.7)' // Dark mode: semi-transparent dark background
+                  : 'rgba(255, 255, 255, 0.85)'; // Light mode: semi-transparent light background
+                const labelTextColor = isDark 
+                  ? '#FFFFFF' // Dark mode: light text
+                  : '#1F2937'; // Light mode: dark text
+                
+                return (
+                  <>
+                    {/* SVG for diagonal lines from current price to target prices */}
+                    <Svg 
+                      style={StyleSheet.absoluteFill}
+                      viewBox={`0 0 ${futureWidth} ${height}`}
+                      preserveAspectRatio="none"
+                      pointerEvents="none"
+                    >
+                      {linesWithLabels.map((line, index) => (
+                        <Line
+                          key={`price-target-line-${line.type}`}
+                          x1={0}
+                          y1={startY}
+                          x2={lineEndX}
+                          y2={line.lineEndY}
+                          stroke={line.color}
+                          strokeWidth={line.strokeWidth}
+                          strokeDasharray={PRICE_TARGET_DASH_ARRAY}
+                          strokeLinecap="round"
+                          opacity={0.8}
+                          vectorEffect="non-scaling-stroke"
+                        />
+                      ))}
+                    </Svg>
+                    
+                    {/* Labels rendered as React Native Views for better styling */}
+                    {/* Labels are positioned at the line end Y position */}
+                    {linesWithLabels.map((line, index) => {
+                      // Requirement 4.2, 4.3, 4.4: Format labels as "{Type}: {Price}"
+                      const formattedPrice = formatTargetPrice(line.price);
+                      const labelText = `${line.type}: ${formattedPrice}`;
+                      
+                      return (
+                        <View
+                          key={`price-target-label-${line.type}`}
+                          style={{
+                            position: 'absolute',
+                            right: labelPadding,
+                            top: line.adjustedLabelY - (labelHeight / 2),
+                            backgroundColor: labelBackgroundColor,
+                            paddingHorizontal: 6,
+                            paddingVertical: 2,
+                            borderRadius: 4,
+                            borderWidth: 1,
+                            borderColor: line.color,
+                            zIndex: 20,
+                          }}
+                          pointerEvents="none"
+                        >
+                          <Text
+                            style={{
+                              fontSize: 11,
+                              fontWeight: '600',
+                              color: labelTextColor,
+                            }}
+                          >
+                            {labelText}
+                          </Text>
+                        </View>
+                      );
+                    })}
+                  </>
+                );
+              })()}
 
               {/* Catalyst dots - rendered after dotted line to appear on top */}
               {/* All dots are rendered but hidden with opacity to prevent image re-renders */}
@@ -1866,12 +2248,16 @@ export const StockLineChart: React.FC<StockLineChartProps> = ({
               const thumbCenterX = thumbPadding + (pastSliderPosition / 100) * travelWidth;
               
               return (
-                <View 
+                <Animated.View 
                   style={[
                     styles.sliderValueLabel, 
                     { 
                       left: thumbCenterX,
-                      transform: [{ translateX: -20 }], // Center the 40px label
+                      transform: [
+                        { translateX: -20 }, // Center the 40px label
+                        { translateY: pastLabelTranslateY },
+                        { scale: pastLabelScale },
+                      ],
                     }
                   ]}
                 >
@@ -1880,7 +2266,7 @@ export const StockLineChart: React.FC<StockLineChartProps> = ({
                       {getDaysLabel(pastDays)}
                     </Text>
                   </View>
-                </View>
+                </Animated.View>
               );
             })()}
             
@@ -1903,6 +2289,8 @@ export const StockLineChart: React.FC<StockLineChartProps> = ({
                   step={0.1}
                   value={pastSliderPosition}
                   onValueChange={handlePastSliderChange}
+                  onSlidingStart={() => setIsPastSliderActive(true)}
+                  onSlidingComplete={() => setIsPastSliderActive(false)}
                   minimumTrackTintColor="transparent"
                   maximumTrackTintColor="transparent"
                   thumbTintColor={themeColors.primary}
@@ -1929,12 +2317,16 @@ export const StockLineChart: React.FC<StockLineChartProps> = ({
                 const thumbCenterX = thumbPadding + (sliderPercent / 100) * travelWidth;
                 
                 return (
-                  <View 
+                  <Animated.View 
                     style={[
                       styles.sliderValueLabel, 
                       { 
                         left: thumbCenterX,
-                        transform: [{ translateX: -20 }], // Center the 40px label
+                        transform: [
+                          { translateX: -20 }, // Center the 40px label
+                          { translateY: futureLabelTranslateY },
+                          { scale: futureLabelScale },
+                        ],
                       }
                     ]}
                   >
@@ -1943,7 +2335,7 @@ export const StockLineChart: React.FC<StockLineChartProps> = ({
                         {getDaysLabel(futureDays)}
                       </Text>
                     </View>
-                  </View>
+                  </Animated.View>
                 );
               })()}
               
@@ -1966,6 +2358,8 @@ export const StockLineChart: React.FC<StockLineChartProps> = ({
                     step={0.1}
                     value={futureDaysToSliderPosition(futureDays)}
                     onValueChange={(position) => handleFutureSliderChange(futureSliderPositionToDays(position))}
+                    onSlidingStart={() => setIsFutureSliderActive(true)}
+                    onSlidingComplete={() => setIsFutureSliderActive(false)}
                     minimumTrackTintColor="transparent"
                     maximumTrackTintColor="transparent"
                     thumbTintColor={themeColors.primary}
@@ -1979,6 +2373,29 @@ export const StockLineChart: React.FC<StockLineChartProps> = ({
           </View>
         )}
       </View>
+      
+      {/* Price Targets Toggle - only show when showUpcomingRange is true and not in miniMode */}
+      {showUpcomingRange && !miniMode && priceTargets.length > 0 && (
+        <View style={styles.priceTargetsToggleContainer}>
+          <Text style={[
+            styles.priceTargetsToggleLabel, 
+            { color: priceTargetsAvailable ? themeColors.mutedForeground : themeColors.muted }
+          ]}>
+            Price Targets {!priceTargetsAvailable && '(3M+)'}
+          </Text>
+          <Switch
+            value={priceTargetsEnabled}
+            onValueChange={setPriceTargetsEnabled}
+            disabled={!priceTargetsAvailable}
+            trackColor={{ 
+              false: priceTargetsAvailable ? themeColors.muted : `${themeColors.muted}80`, 
+              true: priceTargetsAvailable ? themeColors.primary : `${themeColors.primary}40` 
+            }}
+            thumbColor={priceTargetsAvailable ? (priceTargetsEnabled ? '#fff' : '#f4f3f4') : '#d0d0d0'}
+            ios_backgroundColor={priceTargetsAvailable ? themeColors.muted : `${themeColors.muted}80`}
+          />
+        </View>
+      )}
     </View>
   );
 };
@@ -2253,6 +2670,18 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
     textAlign: 'center',
+  },
+  priceTargetsToggleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    paddingHorizontal: 4,
+    paddingTop: 8,
+    gap: 8,
+  },
+  priceTargetsToggleLabel: {
+    fontSize: 12,
+    fontWeight: '500',
   },
 });
 
