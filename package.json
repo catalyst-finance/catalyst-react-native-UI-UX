@@ -6,7 +6,10 @@
     "start": "cross-env EXPO_USE_METRO_REQUIRE=1 expo start",
     "android": "cross-env EXPO_USE_METRO_REQUIRE=1 expo start --android",
     "ios": "cross-env EXPO_USE_METRO_REQUIRE=1 expo start --ios",
-    "web": "cross-env EXPO_USE_METRO_REQUIRE=1 expo start --web"
+    "web": "cross-env EXPO_USE_METRO_REQUIRE=1 expo start --web",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
@@ -53,9 +56,13 @@
     "tailwindcss": "^3.4.19"
   },
   "devDependencies": {
+    "@types/jest": "^30.0.0",
     "@types/react": "~19.1.0",
     "babel-preset-expo": "^54.0.9",
     "cross-env": "^10.1.0",
+    "fast-check": "^4.5.3",
+    "jest": "^30.2.0",
+    "ts-jest": "^29.4.6",
     "typescript": "~5.9.2"
   },
   "private": true

@@ -169,7 +169,7 @@ export const StockLineChart: React.FC<StockLineChartProps> = ({
           tension: 100,
         }),
         Animated.spring(pastLabelTranslateY, {
-          toValue: -15,
+          toValue: -12,
           useNativeDriver: true,
           friction: 8,
           tension: 100,
@@ -204,7 +204,7 @@ export const StockLineChart: React.FC<StockLineChartProps> = ({
           tension: 100,
         }),
         Animated.spring(futureLabelTranslateY, {
-          toValue: -15,
+          toValue: -12,
           useNativeDriver: true,
           friction: 8,
           tension: 100,

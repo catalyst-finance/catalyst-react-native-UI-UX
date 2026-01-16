@@ -69,6 +69,8 @@ export const PortfolioChart: React.FC<PortfolioChartProps> = ({
   // State
   const [loading, setLoading] = useState(true);
   const [portfolioData, setPortfolioData] = useState<PortfolioDataPoint[]>([]);
+  const [intradayData, setIntradayData] = useState<PortfolioDataPoint[]>([]); // Cached intraday data
+  const [historicalData, setHistoricalData] = useState<PortfolioDataPoint[]>([]); // Cached historical data
   const [currentValue, setCurrentValue] = useState(0);
   const [previousClose, setPreviousClose] = useState(0);
   const [dayChange, setDayChange] = useState(0);
@@ -309,10 +311,12 @@ export const PortfolioChart: React.FC<PortfolioChartProps> = ({
     }
   }, [holdings, stocksData]);
 
-  // Load portfolio historical data
-  const loadPortfolioData = useCallback(async () => {
+  // Load all portfolio data (both intraday and historical) upfront for smooth transitions
+  const loadAllPortfolioData = useCallback(async () => {
     if (holdings.length === 0) {
       setPortfolioData([]);
+      setIntradayData([]);
+      setHistoricalData([]);
       setLoading(false);
       return;
     }
@@ -320,11 +324,20 @@ export const PortfolioChart: React.FC<PortfolioChartProps> = ({
     setLoading(true);
 
     try {
-      // For 1D, use intraday data
+      // Load both intraday and historical data in parallel
+      const [intraday, historical] = await Promise.all([
+        loadIntradayPortfolioDataAsync(),
+        loadHistoricalPortfolioDataAsync(),
+      ]);
+      
+      setIntradayData(intraday);
+      setHistoricalData(historical);
+      
+      // Set initial portfolio data based on current time range
       if (selectedTimeRange === '1D') {
-        await loadIntradayPortfolioData();
+        setPortfolioData(intraday);
       } else {
-        await loadHistoricalPortfolioData();
+        setPortfolioData(historical);
       }
     } catch (error) {
       console.error('Error loading portfolio data:', error);
@@ -332,10 +345,10 @@ export const PortfolioChart: React.FC<PortfolioChartProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [holdings, selectedTimeRange]);
+  }, [holdings]);
 
-  // Load intraday portfolio data (for 1D view)
-  const loadIntradayPortfolioData = async () => {
+  // Load intraday portfolio data (for 1D view) - returns data instead of setting state
+  const loadIntradayPortfolioDataAsync = async (): Promise<PortfolioDataPoint[]> => {
     try {
       // Fetch intraday data for all holdings
       const intradayDataMap: Record<string, any[]> = {};
@@ -359,34 +372,48 @@ export const PortfolioChart: React.FC<PortfolioChartProps> = ({
 
       // Only aggregate if we have at least one holding with data
       if (holdingsWithData.length > 0) {
-        const portfolioHistory = aggregatePortfolioData(intradayDataMap, holdingsWithData);
-        setPortfolioData(portfolioHistory);
+        return aggregatePortfolioData(intradayDataMap, holdingsWithData);
       } else {
         console.warn('[PortfolioChart] No holdings have intraday data');
-        setPortfolioData([]);
+        return [];
       }
     } catch (error) {
       console.error('Error loading intraday portfolio data:', error);
-      setPortfolioData([]);
+      return [];
     }
   };
 
-  // Load historical portfolio data (for 1W, 1M, etc.)
-  const loadHistoricalPortfolioData = async () => {
+  // Load historical portfolio data (for 1W, 1M, etc.) - returns data instead of setting state
+  // Fetches multiple granularities and merges them for smooth slider experience
+  const loadHistoricalPortfolioDataAsync = async (): Promise<PortfolioDataPoint[]> => {
     try {
-      // Fetch historical data for all holdings
-      const historicalDataMap: Record<string, any[]> = {};
+      // Fetch multiple time ranges to have appropriate granularity for all slider positions
+      // - 1W data (5-minute intervals) for short ranges (last 7 days)
+      // - 1M data (hourly intervals) for medium ranges  
+      // - 5Y data (daily intervals) for long ranges
+      const weeklyDataMap: Record<string, any[]> = {};
+      const monthlyDataMap: Record<string, any[]> = {};
+      const yearlyDataMap: Record<string, any[]> = {};
       const holdingsWithData: Holding[] = [];
       
       await Promise.all(
         holdings.map(async (holding) => {
           try {
-            const historicalPrices = await HistoricalPriceAPI.fetchHistoricalData(
-              holding.ticker,
-              selectedTimeRange
-            );
-            if (historicalPrices && historicalPrices.length > 0) {
-              historicalDataMap[holding.ticker] = historicalPrices;
+            // Fetch all granularities in parallel
+            const [weeklyPrices, monthlyPrices, yearlyPrices] = await Promise.all([
+              HistoricalPriceAPI.fetchHistoricalData(holding.ticker, '1W'),
+              HistoricalPriceAPI.fetchHistoricalData(holding.ticker, '1M'),
+              HistoricalPriceAPI.fetchHistoricalData(holding.ticker, '5Y'),
+            ]);
+            
+            if (weeklyPrices && weeklyPrices.length > 0) {
+              weeklyDataMap[holding.ticker] = weeklyPrices;
+            }
+            if (monthlyPrices && monthlyPrices.length > 0) {
+              monthlyDataMap[holding.ticker] = monthlyPrices;
+            }
+            if (yearlyPrices && yearlyPrices.length > 0) {
+              yearlyDataMap[holding.ticker] = yearlyPrices;
               holdingsWithData.push(holding);
             } else {
               console.warn(`[PortfolioChart] No historical data for ${holding.ticker}, excluding from portfolio calculation`);
@@ -399,15 +426,54 @@ export const PortfolioChart: React.FC<PortfolioChartProps> = ({
 
       // Only aggregate if we have at least one holding with data
       if (holdingsWithData.length > 0) {
-        const portfolioHistory = aggregatePortfolioData(historicalDataMap, holdingsWithData);
-        setPortfolioData(portfolioHistory);
+        // Merge data from different granularities
+        // Priority: weekly (5-min) > monthly (hourly) > yearly (daily)
+        // Use the highest granularity available for each time period
+        const mergedDataMap: Record<string, any[]> = {};
+        
+        holdingsWithData.forEach(holding => {
+          const weekly = weeklyDataMap[holding.ticker] || [];
+          const monthly = monthlyDataMap[holding.ticker] || [];
+          const yearly = yearlyDataMap[holding.ticker] || [];
+          
+          // Create a map to deduplicate by timestamp (rounded to minute)
+          const dataByMinute = new Map<number, any>();
+          
+          // Add yearly data first (lowest priority)
+          yearly.forEach(point => {
+            const minuteKey = Math.floor(point.timestamp / 60000);
+            dataByMinute.set(minuteKey, point);
+          });
+          
+          // Add monthly data (medium priority, overwrites yearly for same timestamps)
+          monthly.forEach(point => {
+            const minuteKey = Math.floor(point.timestamp / 60000);
+            dataByMinute.set(minuteKey, point);
+          });
+          
+          // Add weekly data (highest priority, overwrites monthly/yearly for same timestamps)
+          weekly.forEach(point => {
+            const minuteKey = Math.floor(point.timestamp / 60000);
+            dataByMinute.set(minuteKey, point);
+          });
+          
+          // Convert back to array and sort
+          const merged = Array.from(dataByMinute.values());
+          merged.sort((a, b) => a.timestamp - b.timestamp);
+          
+          mergedDataMap[holding.ticker] = merged;
+          
+          console.log(`[PortfolioChart] ${holding.ticker} merged data: ${merged.length} points (weekly: ${weekly.length}, monthly: ${monthly.length}, yearly: ${yearly.length})`);
+        });
+        
+        return aggregatePortfolioData(mergedDataMap, holdingsWithData);
       } else {
         console.warn('[PortfolioChart] No holdings have historical data');
-        setPortfolioData([]);
+        return [];
       }
     } catch (error) {
       console.error('Error loading historical portfolio data:', error);
-      setPortfolioData([]);
+      return [];
     }
   };
 
@@ -505,11 +571,42 @@ export const PortfolioChart: React.FC<PortfolioChartProps> = ({
     return portfolioHistory;
   };
 
-  // Initial load
+  // Initial load - fetch both intraday and historical data upfront
   useEffect(() => {
     calculateCurrentValue();
-    loadPortfolioData();
-  }, [calculateCurrentValue, loadPortfolioData]);
+    loadAllPortfolioData();
+    
+    // Preload all time ranges for all holdings in background for smooth slider experience
+    const preloadAllHoldings = async () => {
+      try {
+        await Promise.all(
+          holdings.map(holding => 
+            HistoricalPriceAPI.preloadAllTimeRanges(holding.ticker)
+          )
+        );
+        console.log(`✅ [PortfolioChart] Preloaded all time ranges for ${holdings.length} holdings`);
+      } catch (err) {
+        console.warn('Failed to preload all time ranges for holdings:', err);
+      }
+    };
+    
+    if (holdings.length > 0) {
+      preloadAllHoldings();
+    }
+  }, [calculateCurrentValue, loadAllPortfolioData, holdings]);
+
+  // Select the appropriate data based on time range (synchronous for smooth transitions)
+  // Use intraday data for very short ranges (1D-2D) for better granularity
+  const activePortfolioData = useMemo(() => {
+    // For 1D view or when slider is at 1-2 days, use intraday data if available
+    // This ensures we have 5-minute granularity for short time ranges
+    if (selectedTimeRange === '1D') {
+      return intradayData.length > 0 ? intradayData : portfolioData;
+    } else {
+      // For longer ranges, use historical data which now includes merged granularities
+      return historicalData.length > 0 ? historicalData : portfolioData;
+    }
+  }, [selectedTimeRange, intradayData, historicalData, portfolioData]);
 
   // Compute catalysts with logos synchronously using useMemo
   // This avoids the state update delay that causes staggered rendering
@@ -696,7 +793,7 @@ export const PortfolioChart: React.FC<PortfolioChartProps> = ({
       {/* Chart with side padding */}
       <View style={styles.chartContainer}>
         <StockLineChart
-          data={portfolioData}
+          data={activePortfolioData}
           previousClose={previousClose}
           currentPrice={currentValue}
           priceChange={dayChange}

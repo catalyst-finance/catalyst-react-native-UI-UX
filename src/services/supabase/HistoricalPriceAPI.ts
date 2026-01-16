@@ -6,6 +6,8 @@
  * - 1W: five_minute_prices (5-minute intervals)
  * - 1M: hourly_prices (1-hour intervals)
  * - 3M, YTD, 1Y, 5Y: daily_prices (daily intervals)
+ * 
+ * Includes in-memory caching for smooth slider performance.
  */
 
 import { supabase } from './client';
@@ -31,7 +33,109 @@ interface StockSplit {
   split_ratio: number;
 }
 
+// Cache entry with timestamp for expiration
+interface CacheEntry {
+  data: HistoricalDataPoint[];
+  fetchedAt: number;
+}
+
+// Cache expiration times (in milliseconds)
+const CACHE_EXPIRATION = {
+  '1D': 60 * 1000,        // 1 minute for intraday
+  '1W': 5 * 60 * 1000,    // 5 minutes for weekly
+  '1M': 15 * 60 * 1000,   // 15 minutes for monthly
+  '3M': 30 * 60 * 1000,   // 30 minutes for 3 months
+  'YTD': 30 * 60 * 1000,  // 30 minutes for YTD
+  '1Y': 60 * 60 * 1000,   // 1 hour for yearly
+  '5Y': 60 * 60 * 1000,   // 1 hour for 5 years
+};
+
 class HistoricalPriceAPIClass {
+  // In-memory cache: symbol -> timeRange -> CacheEntry
+  private cache: Map<string, Map<TimeRange, CacheEntry>> = new Map();
+  
+  // Track ongoing fetches to prevent duplicate requests
+  private pendingFetches: Map<string, Promise<HistoricalDataPoint[]>> = new Map();
+
+  /**
+   * Get cache key for a symbol and time range
+   */
+  private getCacheKey(symbol: string, timeRange: TimeRange): string {
+    return `${symbol}:${timeRange}`;
+  }
+
+  /**
+   * Check if cached data is still valid
+   */
+  private isCacheValid(symbol: string, timeRange: TimeRange): boolean {
+    const symbolCache = this.cache.get(symbol);
+    if (!symbolCache) return false;
+    
+    const entry = symbolCache.get(timeRange);
+    if (!entry) return false;
+    
+    const now = Date.now();
+    const expiration = CACHE_EXPIRATION[timeRange] || 60 * 1000;
+    return (now - entry.fetchedAt) < expiration;
+  }
+
+  /**
+   * Get cached data if valid
+   */
+  private getCachedData(symbol: string, timeRange: TimeRange): HistoricalDataPoint[] | null {
+    if (!this.isCacheValid(symbol, timeRange)) return null;
+    
+    const symbolCache = this.cache.get(symbol);
+    return symbolCache?.get(timeRange)?.data || null;
+  }
+
+  /**
+   * Store data in cache
+   */
+  private setCachedData(symbol: string, timeRange: TimeRange, data: HistoricalDataPoint[]): void {
+    if (!this.cache.has(symbol)) {
+      this.cache.set(symbol, new Map());
+    }
+    
+    this.cache.get(symbol)!.set(timeRange, {
+      data,
+      fetchedAt: Date.now(),
+    });
+  }
+
+  /**
+   * Clear cache for a specific symbol (useful for refresh)
+   */
+  clearCache(symbol?: string): void {
+    if (symbol) {
+      this.cache.delete(symbol);
+    } else {
+      this.cache.clear();
+    }
+  }
+
+  /**
+   * Preload all time ranges for a symbol (for smooth slider experience)
+   * Returns a promise that resolves when all data is loaded
+   */
+  async preloadAllTimeRanges(symbol: string): Promise<void> {
+    const timeRanges: TimeRange[] = ['1D', '1W', '1M', '3M', 'YTD', '1Y', '5Y'];
+    
+    // Fetch all time ranges in parallel
+    await Promise.all(
+      timeRanges.map(range => this.fetchHistoricalData(symbol, range))
+    );
+    
+    console.log(`✅ [HistoricalPriceAPI] Preloaded all time ranges for ${symbol}`);
+  }
+
+  /**
+   * Check if all time ranges are cached for a symbol
+   */
+  isFullyCached(symbol: string): boolean {
+    const timeRanges: TimeRange[] = ['1D', '1W', '1M', '3M', 'YTD', '1Y', '5Y'];
+    return timeRanges.every(range => this.isCacheValid(symbol, range));
+  }
   /**
    * Fetch stock splits for a symbol within a date range
    */
@@ -103,8 +207,44 @@ class HistoricalPriceAPIClass {
 
   /**
    * Fetch historical price data for a given symbol and time range
+   * Uses caching to avoid redundant API calls
    */
   async fetchHistoricalData(
+    symbol: string,
+    timeRange: TimeRange
+  ): Promise<HistoricalDataPoint[]> {
+    // Check cache first
+    const cachedData = this.getCachedData(symbol, timeRange);
+    if (cachedData) {
+      return cachedData;
+    }
+
+    // Check if there's already a pending fetch for this symbol/range
+    const cacheKey = this.getCacheKey(symbol, timeRange);
+    const pendingFetch = this.pendingFetches.get(cacheKey);
+    if (pendingFetch) {
+      return pendingFetch;
+    }
+
+    // Create the fetch promise
+    const fetchPromise = this.fetchHistoricalDataInternal(symbol, timeRange);
+    this.pendingFetches.set(cacheKey, fetchPromise);
+
+    try {
+      const data = await fetchPromise;
+      // Cache the result
+      this.setCachedData(symbol, timeRange, data);
+      return data;
+    } finally {
+      // Clean up pending fetch
+      this.pendingFetches.delete(cacheKey);
+    }
+  }
+
+  /**
+   * Internal method to actually fetch historical data from the API
+   */
+  private async fetchHistoricalDataInternal(
     symbol: string,
     timeRange: TimeRange
   ): Promise<HistoricalDataPoint[]> {

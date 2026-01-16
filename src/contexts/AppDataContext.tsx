@@ -203,6 +203,15 @@ export const AppDataProvider: React.FC<AppDataProviderProps> = ({
     );
   }, []);
 
+  // Preload all historical time ranges for smooth slider experience
+  const preloadAllHistoricalRanges = useCallback(async (tickers: string[]): Promise<void> => {
+    // Preload all time ranges for all tickers in parallel
+    await Promise.all(
+      tickers.map(ticker => HistoricalPriceAPI.preloadAllTimeRanges(ticker))
+    );
+    console.log(`✅ [AppDataContext] Preloaded all historical ranges for ${tickers.length} tickers`);
+  }, []);
+
   // Main preload function
   const preloadAllData = useCallback(async () => {
     try {
@@ -217,23 +226,27 @@ export const AppDataProvider: React.FC<AppDataProviderProps> = ({
       
       const allTickers = [...new Set([...holdings, ...watchlist])];
       
-      // Step 2: Load stock data (30%)
+      // Step 2: Load stock data (25%)
       updateProgress(25, 'Fetching stock prices...');
       const stocks = await loadStockData(allTickers);
       setStocksData(stocks);
       
-      // Step 3: Load intraday data (50%)
+      // Step 3: Load intraday data (40%)
       updateProgress(40, 'Loading chart data...');
       const intraday = await loadIntradayData(allTickers);
       setIntradayData(intraday);
       
-      // Step 4: Load events (70%)
-      updateProgress(60, 'Loading events...');
+      // Step 4: Preload all historical ranges for smooth slider (55%)
+      updateProgress(55, 'Caching historical data...');
+      await preloadAllHistoricalRanges(allTickers);
+      
+      // Step 5: Load events (70%)
+      updateProgress(70, 'Loading events...');
       const eventsData = await loadEvents(allTickers);
       setEvents(eventsData);
       
-      // Step 5: Prefetch logos (90%)
-      updateProgress(80, 'Loading company logos...');
+      // Step 6: Prefetch logos (90%)
+      updateProgress(85, 'Loading company logos...');
       await prefetchLogos(stocks);
       
       // Complete
@@ -252,11 +265,14 @@ export const AppDataProvider: React.FC<AppDataProviderProps> = ({
       setIsLoading(false);
       onReady?.();
     }
-  }, [loadTickers, loadStockData, loadIntradayData, loadEvents, prefetchLogos, updateProgress, onReady]);
+  }, [loadTickers, loadStockData, loadIntradayData, preloadAllHistoricalRanges, loadEvents, prefetchLogos, updateProgress, onReady]);
 
   // Refresh data (for pull-to-refresh)
   const refreshData = useCallback(async () => {
     const allTickers = [...new Set([...holdingsTickers, ...watchlistTickers])];
+    
+    // Clear cache for all tickers to get fresh data
+    allTickers.forEach(ticker => HistoricalPriceAPI.clearCache(ticker));
     
     const [stocks, intraday, eventsData] = await Promise.all([
       loadStockData(allTickers),
@@ -267,7 +283,12 @@ export const AppDataProvider: React.FC<AppDataProviderProps> = ({
     setStocksData(stocks);
     setIntradayData(intraday);
     setEvents(eventsData);
-  }, [holdingsTickers, watchlistTickers, loadStockData, loadIntradayData, loadEvents]);
+    
+    // Re-preload all historical ranges in background
+    preloadAllHistoricalRanges(allTickers).catch(err => {
+      console.warn('Failed to re-preload historical ranges after refresh:', err);
+    });
+  }, [holdingsTickers, watchlistTickers, loadStockData, loadIntradayData, loadEvents, preloadAllHistoricalRanges]);
 
   // Initial load
   useEffect(() => {

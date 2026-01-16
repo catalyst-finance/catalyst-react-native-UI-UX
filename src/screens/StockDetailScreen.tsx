@@ -259,17 +259,24 @@ export const StockDetailScreen: React.FC<StockDetailScreenProps> = ({ ticker, on
     loadEvents();
     loadFinancials();
     loadCompanyInfo();
+    
+    // Preload all time ranges in background for smooth slider experience
+    HistoricalPriceAPI.preloadAllTimeRanges(ticker).catch(err => {
+      console.warn('Failed to preload all time ranges:', err);
+    });
   }, [loadStockData, loadHistoricalData, loadEvents, loadFinancials, loadCompanyInfo, timeRange]);
 
-  // Handle time range change
+  // Handle time range change - uses cached data for instant response
   const handleTimeRangeChange = useCallback((range: TimeRange) => {
     setTimeRange(range);
     loadHistoricalData(range);
   }, [loadHistoricalData]);
 
-  // Pull to refresh
+  // Pull to refresh - clears cache to get fresh data
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
+    // Clear cache for this ticker to force fresh data
+    HistoricalPriceAPI.clearCache(ticker);
     await Promise.all([
       loadStockData(),
       loadHistoricalData(timeRange),
@@ -277,7 +284,11 @@ export const StockDetailScreen: React.FC<StockDetailScreenProps> = ({ ticker, on
       loadFinancials(),
       loadCompanyInfo(),
     ]);
-  }, [loadStockData, loadHistoricalData, loadEvents, loadFinancials, loadCompanyInfo, timeRange]);
+    // Re-preload all time ranges after refresh
+    HistoricalPriceAPI.preloadAllTimeRanges(ticker).catch(err => {
+      console.warn('Failed to preload all time ranges after refresh:', err);
+    });
+  }, [loadStockData, loadHistoricalData, loadEvents, loadFinancials, loadCompanyInfo, timeRange, ticker]);
 
   // Handle back button
   const handleBack = () => {
