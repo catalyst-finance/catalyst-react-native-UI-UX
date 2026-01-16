@@ -761,7 +761,7 @@ export const PortfolioChart: React.FC<PortfolioChartProps> = ({
                     ${formatNumber(Math.abs(displayChange))} ({isDisplayPositive ? '+' : ''}{displayChangePercent.toFixed(2)}%)
                   </Text>
                   <Text style={[styles.changeLabel, { color: themeColors.mutedForeground }]}>
-                    {showSessionData ? (currentPeriod === 'premarket' ? 'Prev Close' : 'Today') : ''}
+                    {showSessionData ? (currentPeriod === 'premarket' ? 'Pre-Market' : (currentPeriod === 'afterhours' ? 'After Hours' : 'Today')) : ''}
                   </Text>
                 </View>
 
@@ -776,7 +776,7 @@ export const PortfolioChart: React.FC<PortfolioChartProps> = ({
                         ${formatNumber(Math.abs(sessionDollarChange))} ({isSessionPositive ? '+' : ''}{sessionPercentChange.toFixed(2)}%)
                       </Text>
                       <Text style={[styles.changeLabel, { color: themeColors.mutedForeground }]}>
-                        {currentPeriod === 'premarket' ? 'Pre-Market' : 'After Hours'}
+                        Prev Close
                       </Text>
                     </>
                   ) : (
