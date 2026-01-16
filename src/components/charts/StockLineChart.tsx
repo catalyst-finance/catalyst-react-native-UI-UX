@@ -40,6 +40,7 @@ import {
   PRICE_TARGET_DASH_ARRAY,
   PriceTargetStats
 } from '../../utils/price-target-utils';
+import { PriceTargetModal } from './PriceTargetModal';
 
 interface DataPoint {
   timestamp: number | string;
@@ -143,6 +144,10 @@ export const StockLineChart: React.FC<StockLineChartProps> = ({
   
   // User toggle for price targets visibility (defaults to false, enabled when pastDays >= 30)
   const [priceTargetsEnabled, setPriceTargetsEnabled] = useState(false);
+  
+  // Price target modal state
+  const [priceTargetModalOpen, setPriceTargetModalOpen] = useState(false);
+  const [priceTargetModalType, setPriceTargetModalType] = useState<'high' | 'low'>('high');
   
   // Track slider widths for accurate label positioning
   const [pastSliderWidth, setPastSliderWidth] = useState(0);
@@ -1964,7 +1969,7 @@ export const StockLineChart: React.FC<StockLineChartProps> = ({
                       const labelText = `${line.type}: ${formattedPrice}`;
                       
                       return (
-                        <View
+                        <TouchableOpacity
                           key={`price-target-label-${line.type}`}
                           style={{
                             position: 'absolute',
@@ -1978,7 +1983,12 @@ export const StockLineChart: React.FC<StockLineChartProps> = ({
                             borderColor: line.color,
                             zIndex: 20,
                           }}
-                          pointerEvents="none"
+                          onPress={() => {
+                            setPriceTargetModalType(line.type === 'High' ? 'high' : 'low');
+                            setPriceTargetModalOpen(true);
+                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                          }}
+                          activeOpacity={0.7}
                         >
                           <Text
                             style={{
@@ -1989,7 +1999,7 @@ export const StockLineChart: React.FC<StockLineChartProps> = ({
                           >
                             {labelText}
                           </Text>
-                        </View>
+                        </TouchableOpacity>
                       );
                     })}
                   </>
@@ -2396,6 +2406,15 @@ export const StockLineChart: React.FC<StockLineChartProps> = ({
           />
         </View>
       )}
+      
+      {/* Price Target Modal */}
+      <PriceTargetModal
+        isOpen={priceTargetModalOpen}
+        onClose={() => setPriceTargetModalOpen(false)}
+        title={priceTargetModalType === 'high' ? 'Highest' : 'Lowest'}
+        priceTargets={priceTargets}
+        type={priceTargetModalType}
+      />
     </View>
   );
 };
