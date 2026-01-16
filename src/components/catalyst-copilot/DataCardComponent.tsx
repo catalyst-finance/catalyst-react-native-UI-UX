@@ -11,9 +11,9 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  Image,
   Linking,
 } from 'react-native';
+import { Image as ExpoImage } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../contexts/ThemeContext';
 import { colors as designColors } from '../../constants/design-tokens';
@@ -92,16 +92,18 @@ export function DataCardComponent({
         <View style={styles.articleContent}>
           {/* Article image or logo */}
           {data.imageUrl ? (
-            <Image
+            <ExpoImage
               source={{ uri: data.imageUrl }}
               style={styles.articleImage}
-              resizeMode="cover"
+              contentFit="cover"
+              cachePolicy="memory-disk"
             />
           ) : data.logoUrl ? (
-            <Image
+            <ExpoImage
               source={{ uri: data.logoUrl }}
               style={styles.articleImage}
-              resizeMode="cover"
+              contentFit="cover"
+              cachePolicy="memory-disk"
             />
           ) : (
             <View style={[styles.articleImagePlaceholder, { backgroundColor: isDark ? '#333' : '#f0f0f0' }]}>
@@ -271,10 +273,11 @@ export function DataCardComponent({
 
         {/* Image */}
         <View style={styles.imageContainer}>
-          <Image
+          <ExpoImage
             source={{ uri: data.imageUrl }}
             style={styles.secImage}
-            resizeMode="contain"
+            contentFit="contain"
+            cachePolicy="memory-disk"
           />
         </View>
 

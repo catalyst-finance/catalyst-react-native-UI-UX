@@ -15,9 +15,9 @@ import {
   Platform,
   Dimensions,
   Modal,
-  Image,
   Linking,
 } from 'react-native';
+import { Image as ExpoImage } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../contexts/ThemeContext';
@@ -435,10 +435,11 @@ export const StockDetailScreen: React.FC<StockDetailScreenProps> = ({ ticker, on
               {/* Logo and Basic Info */}
               <View style={styles.companyHeader}>
                 {companyInfo.logo ? (
-                  <Image
+                  <ExpoImage
                     source={{ uri: companyInfo.logo }}
                     style={styles.companyLogo}
-                    resizeMode="contain"
+                    contentFit="contain"
+                    cachePolicy="memory-disk"
                   />
                 ) : (
                   <View style={[styles.companyLogoPlaceholder, { backgroundColor: themeColors.muted }]}>

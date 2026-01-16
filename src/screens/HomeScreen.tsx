@@ -1,79 +1,98 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useCallback, useMemo, useRef } from 'react';
 import { View, Text, ScrollView, StyleSheet, RefreshControl, ActivityIndicator, TouchableOpacity, Dimensions, Platform, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../contexts/ThemeContext';
+import { useAppData } from '../contexts/AppDataContext';
 import { colors } from '../constants/design-tokens';
 import { HoldingsCard } from '../components/charts/HoldingsCard';
 import { WatchlistCard } from '../components/charts/WatchlistCard';
 import { PortfolioChart } from '../components/charts/PortfolioChart';
 import { CalendarMonthGrid } from '../components/calendar';
+import { ExternalAccountsSection } from '../components/portfolio';
+import { ManualPosition } from '../components/portfolio/ManualPositionEntry';
 import { TimeRange } from '../components/charts/StockLineChart';
-import StockAPI from '../services/supabase/StockAPI';
-import HistoricalPriceAPI from '../services/supabase/HistoricalPriceAPI';
-import { DataService } from '../services/DataService';
-import type { StockData as APIStockData } from '../services/supabase/StockAPI';
 import { TEST_PORTFOLIO_HOLDINGS, PortfolioHolding } from '../utils/test-data-helper';
-import EventsAPI, { MarketEvent } from '../services/supabase/EventsAPI';
+import { MarketEvent } from '../services/supabase/EventsAPI';
 import { StockDetailScreen } from './StockDetailScreen';
 
 type HomeTab = 'news' | 'focus' | 'calendar';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-// Hardcoded default tickers until user settings are implemented
-const DEFAULT_HOLDINGS: PortfolioHolding[] = [
-  { ticker: 'TSLA', shares: 10, avgCost: 453.14, purchaseDate: '2026-01-02' },
-  { ticker: 'MNMD', shares: 200, avgCost: 13.45, purchaseDate: '2026-01-02' },
-  { ticker: 'TMC', shares: 500, avgCost: 6.42, purchaseDate: '2026-01-02' },
-];
-const DEFAULT_WATCHLIST = ['AAPL'];
-
 export const HomeScreen: React.FC = () => {
   const { isDark } = useTheme();
   const themeColors = isDark ? colors.dark : colors.light;
   
+  // Get preloaded data from context
+  const {
+    holdingsTickers,
+    watchlistTickers,
+    portfolioHoldings,
+    stocksData,
+    intradayData,
+    events,
+    refreshData,
+  } = useAppData();
+  
   // Refs
   const scrollViewRef = useRef<ScrollView>(null);
   
-  // State
+  // Local UI state only
   const [refreshing, setRefreshing] = useState(false);
-  const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<HomeTab>('focus');
-  const [holdingsTickers, setHoldingsTickers] = useState<string[]>([]);
-  const [watchlistTickers, setWatchlistTickers] = useState<string[]>([]);
-  const [stocksData, setStocksData] = useState<Record<string, APIStockData>>({});
-  const [intradayData, setIntradayData] = useState<Record<string, any[]>>({});
-  const [portfolioHoldings, setPortfolioHoldings] = useState<PortfolioHolding[]>([]);
-  const [events, setEvents] = useState<Record<string, MarketEvent[]>>({});
   const [isCrosshairActive, setIsCrosshairActive] = useState(false);
   const [portfolioTimeRange, setPortfolioTimeRange] = useState<TimeRange>('1D');
   
   // Stock detail modal state
   const [selectedTicker, setSelectedTicker] = useState<string | null>(null);
   const [showStockDetail, setShowStockDetail] = useState(false);
+  
+  // External accounts state
+  const [connectedAccounts, setConnectedAccounts] = useState<Array<{
+    institution: string;
+    accountType: string;
+    accounts?: any[];
+    connectionId?: string;
+    lastUpdated?: string;
+  }>>([]);
+  const [manualPositions, setManualPositions] = useState<ManualPosition[]>([]);
+  
+  // Local state for additional holdings/watchlist added during session
+  const [additionalHoldings, setAdditionalHoldings] = useState<string[]>([]);
+  const [additionalPortfolioHoldings, setAdditionalPortfolioHoldings] = useState<PortfolioHolding[]>([]);
+  
+  // Combine preloaded tickers with any added during session
+  const allHoldingsTickers = useMemo(() => 
+    [...holdingsTickers, ...additionalHoldings], 
+    [holdingsTickers, additionalHoldings]
+  );
+  const allPortfolioHoldings = useMemo(() => 
+    [...portfolioHoldings, ...additionalPortfolioHoldings], 
+    [portfolioHoldings, additionalPortfolioHoldings]
+  );
 
   // Convert holdings tickers to holdings with shares for PortfolioChart
   const holdings = useMemo(() => {
     // Use portfolio holdings if available, otherwise fall back to test data
-    if (portfolioHoldings.length > 0) {
-      return portfolioHoldings.map(h => ({
+    if (allPortfolioHoldings.length > 0) {
+      return allPortfolioHoldings.map(h => ({
         ticker: h.ticker,
         shares: h.shares,
         avgCost: h.avgCost,
       }));
     }
     // Fall back to test portfolio holdings
-    return TEST_PORTFOLIO_HOLDINGS.filter(h => holdingsTickers.includes(h.ticker)).map(h => ({
+    return TEST_PORTFOLIO_HOLDINGS.filter(h => allHoldingsTickers.includes(h.ticker)).map(h => ({
       ticker: h.ticker,
       shares: h.shares,
       avgCost: h.avgCost,
     }));
-  }, [holdingsTickers, portfolioHoldings]);
+  }, [allHoldingsTickers, allPortfolioHoldings]);
 
   // Aggregate events from all holdings for portfolio chart
   const portfolioEvents = useMemo(() => {
     const allEvents: MarketEvent[] = [];
-    const allTickers = [...holdingsTickers, ...watchlistTickers];
+    const allTickers = [...allHoldingsTickers, ...watchlistTickers];
     allTickers.forEach(ticker => {
       const tickerEvents = events[ticker] || [];
       allEvents.push(...tickerEvents);
@@ -84,12 +103,12 @@ export const HomeScreen: React.FC = () => {
       const dateB = new Date(b.actualDateTime || 0).getTime();
       return dateA - dateB;
     });
-  }, [holdingsTickers, watchlistTickers, events]);
+  }, [allHoldingsTickers, watchlistTickers, events]);
 
   // Aggregate events from holdings AND watchlist for calendar
   const calendarEvents = useMemo(() => {
     const allEvents: MarketEvent[] = [];
-    const allTickers = [...holdingsTickers, ...watchlistTickers];
+    const allTickers = [...allHoldingsTickers, ...watchlistTickers];
     allTickers.forEach(ticker => {
       const tickerEvents = events[ticker] || [];
       allEvents.push(...tickerEvents);
@@ -100,7 +119,7 @@ export const HomeScreen: React.FC = () => {
       const dateB = new Date(b.actualDateTime || 0).getTime();
       return dateA - dateB;
     });
-  }, [holdingsTickers, watchlistTickers, events]);
+  }, [allHoldingsTickers, watchlistTickers, events]);
 
   // Count upcoming events in next 3 months
   const upcomingEventsCount = useMemo(() => {
@@ -268,176 +287,23 @@ export const HomeScreen: React.FC = () => {
 
   // Get shares for a specific ticker
   const getSharesForTicker = (ticker: string): number => {
-    const holding = portfolioHoldings.find(h => h.ticker === ticker);
+    const holding = allPortfolioHoldings.find(h => h.ticker === ticker);
     if (holding) return holding.shares;
     const testHolding = TEST_PORTFOLIO_HOLDINGS.find(h => h.ticker === ticker);
     return testHolding?.shares || 10;
   };
 
-  // Load tickers from cache (with hardcoded defaults for now)
-  const loadTickers = useCallback(async () => {
-    try {
-      // Load holdings from cache, fall back to hardcoded defaults
-      const cachedHoldings = await DataService.getCachedData<string[]>('holdings');
-      if (cachedHoldings && cachedHoldings.length > 0) {
-        setHoldingsTickers(cachedHoldings);
-      } else {
-        // Use hardcoded defaults
-        setHoldingsTickers(DEFAULT_HOLDINGS.map(h => h.ticker));
-      }
-
-      // Load portfolio holdings with full details, fall back to hardcoded defaults
-      const cachedPortfolioHoldings = await DataService.getCachedData<PortfolioHolding[]>('portfolio_holdings');
-      if (cachedPortfolioHoldings && cachedPortfolioHoldings.length > 0) {
-        setPortfolioHoldings(cachedPortfolioHoldings);
-      } else {
-        // Use hardcoded defaults
-        setPortfolioHoldings(DEFAULT_HOLDINGS);
-      }
-
-      // Load watchlist from cache, fall back to hardcoded defaults
-      const cachedWatchlist = await DataService.getCachedData<string[]>('watchlist');
-      if (cachedWatchlist && cachedWatchlist.length > 0) {
-        setWatchlistTickers(cachedWatchlist);
-      } else {
-        // Use hardcoded defaults
-        setWatchlistTickers(DEFAULT_WATCHLIST);
-      }
-    } catch (error) {
-      console.error('Error loading tickers:', error);
-      // On error, use hardcoded defaults
-      setHoldingsTickers(DEFAULT_HOLDINGS.map(h => h.ticker));
-      setPortfolioHoldings(DEFAULT_HOLDINGS);
-      setWatchlistTickers(DEFAULT_WATCHLIST);
-    }
-  }, []);
-
-  // Load stock data
-  const loadStockData = useCallback(async (tickers: string[]) => {
-    if (tickers.length === 0) return;
-
-    try {
-      const data: Record<string, APIStockData> = {};
-      
-      // Fetch stock data for all tickers
-      await Promise.all(
-        tickers.map(async (ticker) => {
-          try {
-            const stockData = await StockAPI.getStock(ticker);
-            if (stockData) {
-              data[ticker] = stockData;
-            }
-          } catch (error) {
-            console.error(`Error loading stock data for ${ticker}:`, error);
-          }
-        })
-      );
-
-      setStocksData(data);
-    } catch (error) {
-      console.error('Error loading stock data:', error);
-    }
-  }, []);
-
-  // Load intraday data
-  const loadIntradayData = useCallback(async (tickers: string[]) => {
-    if (tickers.length === 0) return;
-
-    try {
-      const data: Record<string, any[]> = {};
-      
-      // Fetch intraday data for all tickers
-      await Promise.all(
-        tickers.map(async (ticker) => {
-          try {
-            const intradayPrices = await HistoricalPriceAPI.fetchHistoricalData(ticker, '1D');
-            if (intradayPrices && intradayPrices.length > 0) {
-              data[ticker] = intradayPrices;
-            } else {
-              // No intraday data available - mark as empty array to indicate we tried
-              // This prevents infinite loading state
-              data[ticker] = [];
-            }
-          } catch (error) {
-            console.error(`Error loading intraday data for ${ticker}:`, error);
-            // Mark as empty on error to prevent infinite loading
-            data[ticker] = [];
-          }
-        })
-      );
-
-      setIntradayData(data);
-    } catch (error) {
-      console.error('Error loading intraday data:', error);
-    }
-  }, []);
-
-  // Load events data
-  const loadEventsData = useCallback(async (tickers: string[]) => {
-    if (tickers.length === 0) return;
-
-    try {
-      const eventsData: Record<string, MarketEvent[]> = {};
-      
-      // Fetch ALL events (past and upcoming) for all tickers at once
-      const allEvents = await EventsAPI.getEventsByTickers(tickers);
-      
-      // Group events by ticker
-      allEvents.forEach(event => {
-        const ticker = event.ticker || event.symbol || 'N/A';
-        if (!eventsData[ticker]) {
-          eventsData[ticker] = [];
-        }
-        eventsData[ticker].push(event);
-      });
-
-      setEvents(eventsData);
-    } catch (error) {
-      console.error('Error loading events:', error);
-    }
-  }, []);
-
-  // Initial load
-  useEffect(() => {
-    const initialize = async () => {
-      setLoading(true);
-      await loadTickers();
-      setLoading(false);
-    };
-
-    initialize();
-  }, [loadTickers]);
-
-  // Load data when tickers change
-  useEffect(() => {
-    const allTickers = [...holdingsTickers, ...watchlistTickers];
-    if (allTickers.length > 0) {
-      loadStockData(allTickers);
-      loadIntradayData(allTickers);
-      loadEventsData(allTickers);
-    }
-  }, [holdingsTickers, watchlistTickers, loadStockData, loadIntradayData, loadEventsData]);
-
-  // Pull to refresh
+  // Pull to refresh - uses context's refreshData
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    
     try {
-      await loadTickers();
-      const allTickers = [...holdingsTickers, ...watchlistTickers];
-      if (allTickers.length > 0) {
-        await Promise.all([
-          loadStockData(allTickers),
-          loadIntradayData(allTickers),
-          loadEventsData(allTickers)
-        ]);
-      }
+      await refreshData();
     } catch (error) {
       console.error('Error refreshing:', error);
     } finally {
       setRefreshing(false);
     }
-  }, [holdingsTickers, watchlistTickers, loadTickers, loadStockData, loadIntradayData, loadEventsData]);
+  }, [refreshData]);
 
   // Handle stock click
   const handleStockClick = (ticker: string) => {
@@ -463,6 +329,72 @@ export const HomeScreen: React.FC = () => {
     setPortfolioTimeRange(range);
   }, []);
 
+  // Handle account connected via Plaid
+  const handleAccountConnected = useCallback((data: { holdings: any[]; accountInfo: any }) => {
+    // Add the connected account
+    setConnectedAccounts(prev => [...prev, data.accountInfo]);
+    
+    // TODO: Process holdings and add to portfolio
+    // For now, just log the holdings
+    console.log('Connected account holdings:', data.holdings);
+    
+    // In a full implementation, you would:
+    // 1. Parse the holdings data
+    // 2. Add them to portfolioHoldings state
+    // 3. Update holdingsTickers
+    // 4. Cache the data
+  }, []);
+
+  // Handle account disconnected
+  const handleAccountDisconnected = useCallback((connectionId: string) => {
+    setConnectedAccounts(prev => prev.filter(acc => acc.connectionId !== connectionId));
+    // TODO: Remove associated holdings
+  }, []);
+
+  // Handle manual positions added
+  const handleManualPositionsAdded = useCallback((positions: ManualPosition[]) => {
+    setManualPositions(prev => [...prev, ...positions]);
+    
+    // Add the tickers to holdings if not already present
+    const newTickers = positions.map(p => p.symbol).filter(
+      ticker => !allHoldingsTickers.includes(ticker)
+    );
+    
+    if (newTickers.length > 0) {
+      setAdditionalHoldings(prev => [...prev, ...newTickers]);
+    }
+    
+    // Add to portfolio holdings
+    const newHoldings: PortfolioHolding[] = positions.map(p => ({
+      ticker: p.symbol,
+      shares: p.shares,
+      avgCost: p.avgCost,
+      purchaseDate: new Date().toISOString().split('T')[0],
+    }));
+    
+    setAdditionalPortfolioHoldings(prev => {
+      // Merge with existing holdings (update if ticker exists, add if new)
+      const updated = [...prev];
+      newHoldings.forEach(newHolding => {
+        const existingIndex = updated.findIndex(h => h.ticker === newHolding.ticker);
+        if (existingIndex >= 0) {
+          // Average the cost basis
+          const existing = updated[existingIndex];
+          const totalShares = existing.shares + newHolding.shares;
+          const totalValue = (existing.shares * existing.avgCost) + (newHolding.shares * newHolding.avgCost);
+          updated[existingIndex] = {
+            ...existing,
+            shares: totalShares,
+            avgCost: totalValue / totalShares,
+          };
+        } else {
+          updated.push(newHolding);
+        }
+      });
+      return updated;
+    });
+  }, [allHoldingsTickers]);
+
   // Render tab button
   const renderTabButton = (tab: HomeTab, label: string) => {
     const isActive = activeTab === tab;
@@ -487,25 +419,8 @@ export const HomeScreen: React.FC = () => {
     );
   };
 
-  // Render loading state
-  if (loading) {
-    return (
-      <SafeAreaView 
-        style={[styles.container, { backgroundColor: themeColors.background }]} 
-        edges={['bottom']}
-      >
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={themeColors.primary} />
-          <Text style={[styles.loadingText, { color: themeColors.mutedForeground }]}>
-            Loading your stocks...
-          </Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
   // Render empty state
-  if (holdingsTickers.length === 0 && watchlistTickers.length === 0) {
+  if (allHoldingsTickers.length === 0 && watchlistTickers.length === 0) {
     return (
       <SafeAreaView 
         style={[styles.container, { backgroundColor: themeColors.background }]} 
@@ -561,6 +476,7 @@ export const HomeScreen: React.FC = () => {
             pastEvents={pastPortfolioEvents}
             onCrosshairChange={handleCrosshairChange}
             onTimeRangeChange={handlePortfolioTimeRangeChange}
+            stocksData={stocksData}
           />
         )}
 
@@ -576,13 +492,13 @@ export const HomeScreen: React.FC = () => {
           {activeTab === 'focus' && (
             <>
               {/* Holdings Section */}
-              {holdingsTickers.length > 0 && (
+              {allHoldingsTickers.length > 0 && (
                 <View style={styles.section}>
                   <Text style={[styles.sectionHeader, { color: themeColors.foreground }]}>
                     Holdings
                   </Text>
                   <View style={styles.cardList}>
-                    {holdingsTickers.map((ticker) => {
+                    {allHoldingsTickers.map((ticker) => {
                       const stock = stocksData[ticker];
                       const intraday = intradayData[ticker];
                       const shares = getSharesForTicker(ticker);
@@ -677,6 +593,17 @@ export const HomeScreen: React.FC = () => {
                   </View>
                 </View>
               )}
+
+              {/* External Accounts Section */}
+              <View style={styles.section}>
+                <ExternalAccountsSection
+                  connectedAccounts={connectedAccounts}
+                  manualPositions={manualPositions}
+                  onAccountConnected={handleAccountConnected}
+                  onAccountDisconnected={handleAccountDisconnected}
+                  onManualPositionsAdded={handleManualPositionsAdded}
+                />
+              </View>
             </>
           )}
 
@@ -695,7 +622,8 @@ export const HomeScreen: React.FC = () => {
             <View style={styles.calendarContainer}>
               <CalendarMonthGrid
                 events={calendarEvents}
-                selectedTickers={[...holdingsTickers, ...watchlistTickers]}
+                selectedTickers={[...allHoldingsTickers, ...watchlistTickers]}
+                stocksData={stocksData}
               />
             </View>
           )}

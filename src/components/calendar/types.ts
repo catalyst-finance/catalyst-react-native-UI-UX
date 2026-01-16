@@ -26,6 +26,7 @@ export interface CalendarMonthGridProps {
   selectedTickers?: string[];
   onTickerClick?: (ticker: string) => void;
   onEventClick?: (event: MarketEvent) => void;
+  stocksData?: Record<string, any>; // Preloaded stock data with logos
 }
 
 export interface MonthCellProps {

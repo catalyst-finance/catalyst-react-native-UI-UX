@@ -40,6 +40,7 @@ interface PortfolioChartProps {
   futureCatalysts?: FutureCatalyst[];
   pastEvents?: any[]; // Past events to show on the chart
   onCrosshairChange?: (isActive: boolean) => void;
+  stocksData?: Record<string, any>; // Preloaded stock data with logos
 }
 
 interface FutureCatalyst {
@@ -60,6 +61,7 @@ export const PortfolioChart: React.FC<PortfolioChartProps> = ({
   futureCatalysts = [],
   pastEvents = [],
   onCrosshairChange,
+  stocksData = {},
 }) => {
   const { isDark } = useTheme();
   const themeColors = isDark ? colors.dark : colors.light;
@@ -76,7 +78,6 @@ export const PortfolioChart: React.FC<PortfolioChartProps> = ({
   const [crosshairActive, setCrosshairActive] = useState(false);
   const [crosshairValue, setCrosshairValue] = useState<number | null>(null);
   const [crosshairTimestamp, setCrosshairTimestamp] = useState<number | null>(null);
-  const [catalystsWithLogos, setCatalystsWithLogos] = useState<FutureCatalyst[]>([]);
   
   // Period-based display values from StockLineChart (updated when slider changes)
   const [periodDisplayValues, setPeriodDisplayValues] = useState<{
@@ -259,11 +260,18 @@ export const PortfolioChart: React.FC<PortfolioChartProps> = ({
       let totalPrevClose = 0;
       let holdingsWithData = 0;
 
-      // Fetch current stock data for all holdings
+      // Use preloaded stock data when available, fallback to fetching
       await Promise.all(
         holdings.map(async (holding) => {
           try {
-            const stockData = await StockAPI.getStock(holding.ticker);
+            // First try preloaded data
+            let stockData = stocksData[holding.ticker];
+            
+            // Fallback to fetching if not in preloaded data
+            if (!stockData) {
+              stockData = await StockAPI.getStock(holding.ticker);
+            }
+            
             if (stockData && stockData.currentPrice > 0) {
               const positionValue = holding.shares * stockData.currentPrice;
               const positionPrevClose = holding.shares * (stockData.previousClose ?? stockData.currentPrice);
@@ -299,7 +307,7 @@ export const PortfolioChart: React.FC<PortfolioChartProps> = ({
     } catch (error) {
       console.error('Error calculating portfolio value:', error);
     }
-  }, [holdings]);
+  }, [holdings, stocksData]);
 
   // Load portfolio historical data
   const loadPortfolioData = useCallback(async () => {
@@ -503,48 +511,24 @@ export const PortfolioChart: React.FC<PortfolioChartProps> = ({
     loadPortfolioData();
   }, [calculateCurrentValue, loadPortfolioData]);
 
-  // Fetch logos for catalysts
-  useEffect(() => {
-    const fetchLogos = async () => {
-      if (futureCatalysts.length === 0) {
-        setCatalystsWithLogos([]);
-        return;
+  // Compute catalysts with logos synchronously using useMemo
+  // This avoids the state update delay that causes staggered rendering
+  const catalystsWithLogos = useMemo(() => {
+    if (futureCatalysts.length === 0) {
+      return [];
+    }
+
+    return futureCatalysts.map(catalyst => {
+      const ticker = catalyst.catalyst?.ticker;
+      if (ticker && stocksData[ticker]?.logo) {
+        return {
+          ...catalyst,
+          tickerLogo: stocksData[ticker].logo,
+        };
       }
-
-      const catalystsWithLogosData = await Promise.all(
-        futureCatalysts.map(async (catalyst) => {
-          try {
-            const ticker = catalyst.catalyst?.ticker;
-            if (ticker) {
-              const stockData = await StockAPI.getStock(ticker);
-              return {
-                ...catalyst,
-                tickerLogo: stockData?.logo,
-              };
-            }
-          } catch (error) {
-            console.error(`Error fetching logo for ${catalyst.catalyst?.ticker}:`, error);
-          }
-          return catalyst;
-        })
-      );
-
-      setCatalystsWithLogos(catalystsWithLogosData);
-      
-      // Prefetch all logo images to cache them
-      const logoUrls = catalystsWithLogosData
-        .filter(c => c.tickerLogo)
-        .map(c => c.tickerLogo as string);
-      const uniqueUrls = [...new Set(logoUrls)];
-      uniqueUrls.forEach(url => {
-        Image.prefetch(url).catch(() => {
-          // Silently ignore prefetch errors
-        });
-      });
-    };
-
-    fetchLogos();
-  }, [futureCatalysts]);
+      return catalyst;
+    });
+  }, [futureCatalysts, stocksData]);
 
   // Handle time range change
   const handleTimeRangeChange = useCallback((range: TimeRange) => {

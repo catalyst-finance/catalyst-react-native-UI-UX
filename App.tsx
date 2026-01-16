@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { View, Text } from 'react-native';
@@ -6,14 +6,15 @@ import * as SplashScreen from 'expo-splash-screen';
 import * as Font from 'expo-font';
 import { ThemeProvider, useTheme } from './src/contexts/ThemeContext';
 import { AuthProvider } from './src/contexts/AuthContext';
+import { AppDataProvider } from './src/contexts/AppDataContext';
 import { RootNavigator } from './src/navigation/RootNavigator';
 import { fonts } from './src/utils/fonts';
 import { NetworkService } from './src/services/NetworkService';
-import { DataService } from './src/services/DataService';
 import { BackgroundFetchService } from './src/services/BackgroundFetchService';
 import { populateTestData } from './src/utils/test-data-helper';
+import { SplashLoadingScreen } from './src/components/SplashLoadingScreen';
 
-// Keep the splash screen visible while we load fonts
+// Keep the native splash screen visible initially
 SplashScreen.preventAutoHideAsync();
 
 // Error Boundary Component
@@ -38,15 +39,12 @@ class ErrorBoundary extends React.Component<
   render() {
     if (this.state.hasError) {
       return (
-        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 }}>
-          <Text style={{ fontSize: 18, fontWeight: 'bold', marginBottom: 10 }}>
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20, backgroundColor: '#000' }}>
+          <Text style={{ fontSize: 18, fontWeight: 'bold', marginBottom: 10, color: '#fff' }}>
             Something went wrong
           </Text>
-          <Text style={{ fontSize: 14, color: '#666', textAlign: 'center' }}>
+          <Text style={{ fontSize: 14, color: '#999', textAlign: 'center' }}>
             {this.state.error?.message || 'Unknown error'}
-          </Text>
-          <Text style={{ fontSize: 12, color: '#999', marginTop: 10, textAlign: 'center' }}>
-            {this.state.error?.stack}
           </Text>
         </View>
       );
@@ -59,8 +57,6 @@ class ErrorBoundary extends React.Component<
 function AppContent() {
   const { isDark } = useTheme();
   
-  console.log('AppContent rendering, isDark:', isDark);
-  
   return (
     <>
       <StatusBar style={isDark ? 'light' : 'dark'} />
@@ -70,85 +66,76 @@ function AppContent() {
 }
 
 export default function App() {
-  const [appIsReady, setAppIsReady] = useState(false);
+  const [fontsLoaded, setFontsLoaded] = useState(false);
+  const [servicesReady, setServicesReady] = useState(false);
+  const [dataReady, setDataReady] = useState(false);
+  const [loadingProgress, setLoadingProgress] = useState(0);
+  const [loadingMessage, setLoadingMessage] = useState('Starting...');
 
+  // Initialize core services (fonts, network, etc.)
   useEffect(() => {
-    async function prepare() {
+    async function initializeServices() {
       try {
-        console.log('App starting...');
+        // Hide native splash immediately so we show our custom one
+        await SplashScreen.hideAsync();
         
-        // Initialize services
-        console.log('Initializing services...');
-        
-        // 1. Initialize NetworkService (must be first)
+        // Initialize network service
         await NetworkService.init();
-        console.log('✅ NetworkService initialized');
         
-        // 2. Load fonts
-        console.log('Loading Gotham fonts...');
+        // Load fonts
         await Font.loadAsync(fonts);
-        console.log('✅ Fonts loaded successfully');
+        setFontsLoaded(true);
         
-        // 3. Preload cache for common data
-        console.log('Preloading cache...');
-        const preloadKeys = [
-          'watchlist',
-          'portfolio',
-          'market_status',
-          'user_preferences',
-        ];
-        const preloadedCount = await DataService.preloadCache(preloadKeys);
-        console.log(`✅ Preloaded ${preloadedCount} cache entries`);
+        // Initialize background fetch
+        await BackgroundFetchService.init();
         
-        // 4. Initialize BackgroundFetchService
-        console.log('Initializing background fetch...');
-        const bgFetchSuccess = await BackgroundFetchService.init();
-        if (bgFetchSuccess) {
-          console.log('✅ BackgroundFetchService initialized');
-        } else {
-          console.warn('⚠️ BackgroundFetchService not available');
-        }
-        
-        // 5. Get cache statistics (for debugging)
-        const cacheStats = await DataService.getCacheStats();
-        console.log('📊 Cache stats:', cacheStats);
-        
-        console.log('✅ All services initialized successfully');
-        
-        // Add test data for development
+        // Populate test data in dev mode
         if (__DEV__) {
-          console.log('🧪 Populating test data for HomeScreen...');
           await populateTestData();
         }
         
-        // Artificial delay for splash screen (optional)
-        await new Promise(resolve => setTimeout(resolve, 500));
-      } catch (e) {
-        console.warn('Error during initialization:', e);
-      } finally {
-        setAppIsReady(true);
+        setServicesReady(true);
+      } catch (error) {
+        console.error('Error initializing services:', error);
+        setServicesReady(true); // Continue anyway
       }
     }
 
-    prepare();
+    initializeServices();
   }, []);
 
-  useEffect(() => {
-    if (appIsReady) {
-      SplashScreen.hideAsync();
-    }
-  }, [appIsReady]);
+  // Handle data loading progress from AppDataProvider
+  const handleLoadingProgress = useCallback((progress: number, message: string) => {
+    setLoadingProgress(progress);
+    setLoadingMessage(message);
+  }, []);
 
-  if (!appIsReady) {
-    return null;
-  }
-  
+  // Handle when data is ready
+  const handleDataReady = useCallback(() => {
+    setDataReady(true);
+  }, []);
+
+  // Show splash screen until everything is ready
+  const showSplash = !fontsLoaded || !servicesReady || !dataReady;
+
   return (
     <ErrorBoundary>
       <SafeAreaProvider>
         <AuthProvider>
           <ThemeProvider>
-            <AppContent />
+            <AppDataProvider
+              onLoadingProgress={handleLoadingProgress}
+              onReady={handleDataReady}
+            >
+              {showSplash ? (
+                <SplashLoadingScreen
+                  loadingProgress={loadingProgress}
+                  loadingMessage={loadingMessage}
+                />
+              ) : (
+                <AppContent />
+              )}
+            </AppDataProvider>
           </ThemeProvider>
         </AuthProvider>
       </SafeAreaProvider>

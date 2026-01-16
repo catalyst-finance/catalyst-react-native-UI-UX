@@ -13,16 +13,16 @@ import {
   TouchableOpacity,
   StyleSheet,
   ScrollView,
-  Image,
   Animated,
   PanResponder,
   Dimensions,
 } from 'react-native';
+import { Image as ExpoImage } from 'expo-image';
 import { useTheme } from '../../contexts/ThemeContext';
 import { colors } from '../../constants/design-tokens';
 import StockAPI from '../../services/supabase/StockAPI';
 import { EventTypeIcon } from './EventTypeIcon';
-import { ExpandedTimeline } from './ExpandedTimeline';
+import { TickerTimeline } from './TickerTimeline';
 import type { CalendarMonthGridProps, MonthData } from './types';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -33,6 +33,7 @@ export const CalendarMonthGrid: React.FC<CalendarMonthGridProps> = ({
   year: propYear,
   onYearChange,
   onEventClick,
+  stocksData = {},
 }) => {
   const { isDark } = useTheme();
   const themeColors = isDark ? colors.dark : colors.light;
@@ -52,6 +53,12 @@ export const CalendarMonthGrid: React.FC<CalendarMonthGridProps> = ({
   const [expandedMonth, setExpandedMonth] = useState<number | null>(
     (propYear ?? currentYear) === currentYear ? currentMonth : null
   );
+  const expandedMonthRef = useRef(expandedMonth);
+
+  // Keep ref in sync with state
+  useEffect(() => {
+    expandedMonthRef.current = expandedMonth;
+  }, [expandedMonth]);
 
   const hasInitialExpanded = useRef(false);
 
@@ -66,10 +73,10 @@ export const CalendarMonthGrid: React.FC<CalendarMonthGridProps> = ({
   // PanResponder for swipe gestures
   const panResponder = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => !isAnimating,
+      onStartShouldSetPanResponder: () => !isAnimating && expandedMonthRef.current === null, // Only capture when no month is expanded
       onMoveShouldSetPanResponder: (_evt, gestureState) => {
-        // Allow more vertical grace - horizontal movement just needs to be dominant
-        if (isAnimating) return false;
+        // Don't capture if a month is expanded (to allow horizontal timeline scrolling)
+        if (isAnimating || expandedMonthRef.current !== null) return false;
         const isHorizontal = Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 0.8;
         const isSignificant = Math.abs(gestureState.dx) > 5;
         return isHorizontal && isSignificant;
@@ -296,7 +303,7 @@ export const CalendarMonthGrid: React.FC<CalendarMonthGridProps> = ({
     });
   }, [events, expandedMonth, selectedYear]);
 
-  // Fetch company logos
+  // Fetch company logos - use preloaded stocksData when available
   useEffect(() => {
     const fetchLogos = async () => {
       // Collect all unique tickers from all months
@@ -306,12 +313,29 @@ export const CalendarMonthGrid: React.FC<CalendarMonthGridProps> = ({
 
       if (uniqueTickers.length === 0) return;
 
-      try {
-        // Fetch all stock data at once (includes logos)
-        const stocksData = await StockAPI.getStocks(uniqueTickers);
+      const logoMap = new Map<string, string>();
+      const tickersToFetch: string[] = [];
 
-        const logoMap = new Map<string, string>();
-        Object.entries(stocksData).forEach(([ticker, stockData]) => {
+      // First, use preloaded stocksData for logos
+      uniqueTickers.forEach(ticker => {
+        if (stocksData[ticker]?.logo) {
+          logoMap.set(ticker, stocksData[ticker].logo);
+        } else {
+          tickersToFetch.push(ticker);
+        }
+      });
+
+      // If we have all logos from preloaded data, set them immediately
+      if (tickersToFetch.length === 0) {
+        setCompaniesWithLogos(logoMap);
+        return;
+      }
+
+      try {
+        // Fetch remaining logos that weren't preloaded
+        const fetchedStocksData = await StockAPI.getStocks(tickersToFetch);
+
+        Object.entries(fetchedStocksData).forEach(([ticker, stockData]) => {
           if (stockData.logo) {
             logoMap.set(ticker, stockData.logo);
           }
@@ -320,11 +344,13 @@ export const CalendarMonthGrid: React.FC<CalendarMonthGridProps> = ({
         setCompaniesWithLogos(logoMap);
       } catch (error) {
         console.error('Error fetching company logos:', error);
+        // Still set the logos we got from preloaded data
+        setCompaniesWithLogos(logoMap);
       }
     };
 
     fetchLogos();
-  }, [monthData]);
+  }, [monthData, stocksData]);
 
   // Render a full month button (for current/future quarters)
   const renderMonthButton = (data: MonthData, quarterHasEvents: boolean) => {
@@ -360,10 +386,11 @@ export const CalendarMonthGrid: React.FC<CalendarMonthGridProps> = ({
                 <View key={`${data.month}-${company.ticker}-${idx}`} style={styles.companyRow}>
                   {/* Company Logo or Ticker Badge */}
                   {logoUrl ? (
-                    <Image
+                    <ExpoImage
                       source={{ uri: logoUrl }}
                       style={styles.companyLogo}
-                      resizeMode="contain"
+                      contentFit="contain"
+                      cachePolicy="memory-disk"
                     />
                   ) : (
                     <View style={styles.tickerBadge}>
@@ -471,21 +498,71 @@ export const CalendarMonthGrid: React.FC<CalendarMonthGridProps> = ({
           ))}
         </View>
 
-        {/* Expanded Timeline */}
+        {/* Expanded Timeline - Per-Ticker Horizontal Timelines */}
         {hasExpandedMonth && (
           <View style={styles.expandedTimelineWrapper}>
             {quarterMonths.map((data) => {
               if (expandedMonth !== data.month) return null;
 
+              // Group events by ticker
+              const eventsByTicker = new Map<string, typeof expandedMonthEvents>();
+              expandedMonthEvents.forEach(event => {
+                const ticker = event.ticker || 'N/A';
+                if (!eventsByTicker.has(ticker)) {
+                  eventsByTicker.set(ticker, []);
+                }
+                eventsByTicker.get(ticker)!.push(event);
+              });
+
+              // Sort tickers by earliest event date
+              const sortedTickers = Array.from(eventsByTicker.entries()).sort((a, b) => {
+                const earliestA = Math.min(...a[1].map(e => 
+                  e.actualDateTime ? new Date(e.actualDateTime).getTime() : Infinity
+                ));
+                const earliestB = Math.min(...b[1].map(e => 
+                  e.actualDateTime ? new Date(e.actualDateTime).getTime() : Infinity
+                ));
+                return earliestA - earliestB;
+              });
+
               return (
-                <ExpandedTimeline
-                  key={`timeline-${data.month}`}
-                  monthIndex={data.month}
-                  year={selectedYear}
-                  events={expandedMonthEvents}
-                  onClose={() => setExpandedMonth(null)}
-                  onEventClick={onEventClick}
-                />
+                <View key={`timeline-${data.month}`}>
+                  {/* Header with month name and close button */}
+                  <View style={styles.timelineHeader}>
+                    <Text style={[styles.timelineHeaderTitle, { color: themeColors.foreground }]}>
+                      {new Date(selectedYear, data.month).toLocaleString('default', { month: 'long' })} {selectedYear}
+                    </Text>
+                    <TouchableOpacity
+                      style={[styles.closeButton, { backgroundColor: themeColors.muted }]}
+                      onPress={() => setExpandedMonth(null)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[styles.closeButtonText, { color: themeColors.mutedForeground }]}>✕</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Vertical stack of horizontal timelines */}
+                  <View style={styles.tickerTimelinesContainer}>
+                    {sortedTickers.map(([ticker, tickerEvents]) => (
+                      <TickerTimeline
+                        key={ticker}
+                        ticker={ticker}
+                        logoUrl={companiesWithLogos.get(ticker)}
+                        events={tickerEvents}
+                        onEventClick={onEventClick}
+                      />
+                    ))}
+                  </View>
+
+                  {/* Empty state */}
+                  {sortedTickers.length === 0 && (
+                    <View style={styles.emptyState}>
+                      <Text style={[styles.emptyText, { color: themeColors.mutedForeground }]}>
+                        No events for this month
+                      </Text>
+                    </View>
+                  )}
+                </View>
               );
             })}
           </View>
@@ -689,5 +766,37 @@ const styles = StyleSheet.create({
   },
   expandedTimelineWrapper: {
     marginTop: 12,
+    paddingHorizontal: 16,
+  },
+  timelineHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  timelineHeaderTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  closeButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  closeButtonText: {
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  tickerTimelinesContainer: {
+    gap: 0,
+  },
+  emptyState: {
+    paddingVertical: 32,
+    alignItems: 'center',
+  },
+  emptyText: {
+    fontSize: 13,
   },
 });

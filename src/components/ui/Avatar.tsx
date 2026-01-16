@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, Image, StyleSheet, ViewStyle } from 'react-native';
+import { View, Text, StyleSheet, ViewStyle } from 'react-native';
+import { Image as ExpoImage } from 'expo-image';
 import { colors } from '../../constants/design-tokens';
 import { useTheme } from '../../contexts/ThemeContext';
 
@@ -28,11 +29,12 @@ export const Avatar: React.FC<AvatarProps> = ({
   return (
     <View style={[styles.container, sizeStyle, style]}>
       {!showFallback ? (
-        <Image
+        <ExpoImage
           source={{ uri: src }}
           style={[styles.image, sizeStyle]}
           onError={() => setImageError(true)}
           accessibilityLabel={alt}
+          cachePolicy="memory-disk"
         />
       ) : (
         <View style={[styles.fallback, sizeStyle, { backgroundColor: themeColors.muted }]}>

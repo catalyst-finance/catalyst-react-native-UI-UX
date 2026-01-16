@@ -9,7 +9,8 @@
  */
 
 import React, { useMemo, useState, useRef, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, Animated, PanResponder, Image } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, Animated, PanResponder } from 'react-native';
+import { Image as ExpoImage } from 'expo-image';
 import Slider from '@react-native-community/slider';
 import Svg, { Path, Line, Rect, Defs, ClipPath, Circle } from 'react-native-svg';
 import * as Haptics from 'expo-haptics';
@@ -456,22 +457,8 @@ export const StockLineChart: React.FC<StockLineChartProps> = ({
     isCrosshairEnabledRef.current = isCrosshairEnabled;
   }, [isCrosshairEnabled]);
 
-  // Preload company logo images for catalyst dots to prevent re-renders on slider change
-  useEffect(() => {
-    if (showTickerLogos && futureCatalysts.length > 0) {
-      const logoUrls = futureCatalysts
-        .filter(catalyst => catalyst.tickerLogo)
-        .map(catalyst => catalyst.tickerLogo as string);
-      
-      // Prefetch all unique logo URLs
-      const uniqueUrls = [...new Set(logoUrls)];
-      uniqueUrls.forEach(url => {
-        Image.prefetch(url).catch(() => {
-          // Silently ignore prefetch errors
-        });
-      });
-    }
-  }, [futureCatalysts, showTickerLogos]);
+  // Note: Logo prefetching is now handled by AppDataContext using expo-image
+  // which has better caching than React Native's Image.prefetch
 
   // Update width on layout
   const handleLayout = (event: any) => {
@@ -1784,10 +1771,11 @@ export const StockLineChart: React.FC<StockLineChartProps> = ({
                         }}
                         pointerEvents="none"
                       >
-                        <Image
+                        <ExpoImage
                           source={{ uri: catalyst.tickerLogo }}
                           style={{ width: logoSize, height: logoSize }}
-                          resizeMode="cover"
+                          contentFit="cover"
+                          cachePolicy="memory-disk"
                         />
                       </View>
                     </React.Fragment>
