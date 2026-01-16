@@ -592,7 +592,7 @@ export const StockLineChart: React.FC<StockLineChartProps> = ({
     // Requirement 1.1: Fetch price targets from backend API
     const fetchTargets = async () => {
       try {
-        const targets = await PriceTargetsService.fetchPriceTargets(ticker);
+        const targets = await PriceTargetsService.fetchPriceTargets(ticker, 1000);
         setFetchedPriceTargets(targets);
       } catch (error) {
         // Requirement 1.3: Return empty array on error (handled by service)
@@ -609,13 +609,10 @@ export const StockLineChart: React.FC<StockLineChartProps> = ({
   // Calculate price target stats - Requirements 2.1, 2.2, 2.3, 2.4
   const priceTargetStats = useMemo(() => {
     if (!shouldShowPriceTargets || priceTargets.length === 0) {
-      console.log(`[StockLineChart ${ticker}] Price targets not shown: shouldShow=${shouldShowPriceTargets}, count=${priceTargets.length}`);
       return null;
     }
-    const stats = calculatePriceTargetStats(priceTargets);
-    console.log(`[StockLineChart ${ticker}] Price target stats:`, stats);
-    return stats;
-  }, [priceTargets, shouldShowPriceTargets, ticker]);
+    return calculatePriceTargetStats(priceTargets);
+  }, [priceTargets, shouldShowPriceTargets]);
 
   // Note: Logo prefetching is now handled by AppDataContext using expo-image
   // which has better caching than React Native's Image.prefetch
@@ -1238,7 +1235,20 @@ export const StockLineChart: React.FC<StockLineChartProps> = ({
   const fadeOverlayColor = isDark ? 'rgba(3, 2, 19, 0.7)' : 'rgba(255, 255, 255, 0.7)';
   const previousCloseLineColor = isDark ? '#888888' : '#888888';
   const gradientEdgeColor = isDark ? 'rgba(3, 2, 19, 1)' : 'rgba(255, 255, 255, 1)';
-  const gradientCenterColor = isDark ? 'rgba(60, 60, 60, 1)' : 'rgba(236, 236, 240, 1)';
+  
+  // Dynamic gradient intensity based on future range (darker = further into future)
+  // Ranges from 3M (90 days) to 3Y (1095 days)
+  // Intensity factor: 0.0 at 3M, 1.0 at 3Y
+  const intensityFactor = Math.min(1, Math.max(0, (futureDays - 90) / (1095 - 90)));
+  
+  // Dark mode: 60 (light grey) → 40 (darker grey) as range increases
+  // Light mode: 236 (light) → 200 (darker) as range increases
+  const darkModeGrey = Math.round(60 - (intensityFactor * 20));
+  const lightModeGrey = Math.round(236 - (intensityFactor * 36));
+  
+  const gradientCenterColor = isDark 
+    ? `rgba(${darkModeGrey}, ${darkModeGrey}, ${darkModeGrey}, 1)` 
+    : `rgba(${lightModeGrey}, ${lightModeGrey}, ${lightModeGrey + 4}, 1)`;
   const gradientSideColor = isDark ? 'rgba(3, 2, 19, 1)' : 'rgba(255, 255, 255, 1)';
   const gradientSideTransparent = isDark ? 'rgba(3, 2, 19, 0)' : 'rgba(255, 255, 255, 0)';
 
@@ -1878,41 +1888,38 @@ export const StockLineChart: React.FC<StockLineChartProps> = ({
                 // Calculate the future section width for positioning
                 const futureWidth = (width * futureWidthPercent) / 100;
                 
-                // Analyst price targets represent 1 year (365 days) into the future
-                // Calculate the X position where lines should end based on the current future slider range
-                const targetHorizonDays = 365; // 1 year target horizon
-                const targetXRatio = Math.min(1, targetHorizonDays / futureDays); // Clamp to 1 if slider < 1 year
-                
-                // Label width estimation (for positioning lines to end before labels)
+                // Label width estimation (for positioning labels)
                 const estimatedLabelWidth = 75; // Approximate width of "High: $548" label
                 const labelPadding = 8;
                 
-                // Lines end at the target horizon position, but leave room for labels
-                // If target horizon is beyond the visible range, lines go to the edge minus label space
-                const lineEndX = Math.min(
-                  futureWidth * targetXRatio,
-                  futureWidth - estimatedLabelWidth - labelPadding
-                );
+                // Price targets have a 1-year horizon
+                // If slider is at 1Y or less, lines extend to right edge
+                // If slider is more than 1Y, lines end at the proportional 1Y position
+                const ONE_YEAR_DAYS = 365;
+                const lineEndX = futureDays <= ONE_YEAR_DAYS 
+                  ? futureWidth 
+                  : (ONE_YEAR_DAYS / futureDays) * futureWidth;
+                
+                // Progress ratio for Y interpolation (1.0 if <= 1Y, proportional if > 1Y)
+                const progressRatio = futureDays <= ONE_YEAR_DAYS 
+                  ? 1.0 
+                  : ONE_YEAR_DAYS / futureDays;
                 
                 // Starting Y position for diagonal lines (current price point)
                 // Use scaledLastPointY which is the Y position of the last data point
                 const startY = scaledLastPointY;
                 
-                // Calculate the Y position at the line end point (interpolated based on where line ends)
-                // The progress determines how far along the line we are toward the 1-year target
-                const progress = lineEndX / (futureWidth * targetXRatio);
-                
-                // Calculate Y positions for each line at the LINE END POINT (not the full target)
-                // This is the key: we interpolate based on how far the line extends
+                // Calculate Y positions for each line
+                // If slider > 1Y, interpolate Y position to match the 1Y horizon
                 const linesWithEndY = lineConfigs.map(config => {
-                  // Full target Y position (where line would end at 1 year)
+                  // Full target Y position (at the actual target price)
                   const fullTargetY = calculateTargetY(config.price, minY, maxY, chartHeight, margin.top);
-                  // Interpolated Y position at the actual line endpoint
-                  const lineEndY = startY + (fullTargetY - startY) * progress;
+                  // Interpolated Y position based on progress toward 1Y horizon
+                  const lineEndY = startY + (fullTargetY - startY) * progressRatio;
                   return { ...config, fullTargetY, lineEndY };
                 });
                 
-                // Requirement 4.5: Apply overlap prevention algorithm to LINE END Y positions
+                // Requirement 4.5: Apply overlap prevention algorithm to label positions
                 const labelHeight = 18; // Approximate height of label text
                 const labelPositions = adjustLabelPositions(
                   linesWithEndY.map(line => ({ y: line.lineEndY, height: labelHeight })),
@@ -1961,47 +1968,58 @@ export const StockLineChart: React.FC<StockLineChartProps> = ({
                       ))}
                     </Svg>
                     
-                    {/* Labels rendered as React Native Views for better styling */}
-                    {/* Labels are positioned at the line end Y position */}
-                    {linesWithLabels.map((line, index) => {
-                      // Requirement 4.2, 4.3, 4.4: Format labels as "{Type}: {Price}"
-                      const formattedPrice = formatTargetPrice(line.price);
-                      const labelText = `${line.type}: ${formattedPrice}`;
-                      
-                      return (
-                        <TouchableOpacity
-                          key={`price-target-label-${line.type}`}
-                          style={{
-                            position: 'absolute',
-                            right: labelPadding,
-                            top: line.adjustedLabelY - (labelHeight / 2),
-                            backgroundColor: labelBackgroundColor,
-                            paddingHorizontal: 6,
-                            paddingVertical: 2,
-                            borderRadius: 4,
-                            borderWidth: 1,
-                            borderColor: line.color,
-                            zIndex: 20,
-                          }}
-                          onPress={() => {
-                            setPriceTargetModalType(line.type === 'High' ? 'high' : 'low');
-                            setPriceTargetModalOpen(true);
-                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                          }}
-                          activeOpacity={0.7}
-                        >
-                          <Text
+                    {/* Labels stacked at bottom right of upcoming chart area */}
+                    {/* Sorted by price: highest at top, lowest at bottom */}
+                    <View
+                      style={{
+                        position: 'absolute',
+                        right: labelPadding,
+                        bottom: margin.bottom + 8,
+                        alignItems: 'flex-end',
+                        zIndex: 20,
+                      }}
+                    >
+                      {[...linesWithLabels].sort((a, b) => b.price - a.price).map((line, index) => {
+                        // Requirement 4.2, 4.3, 4.4: Format labels as "{Type}: {Price}"
+                        const formattedPrice = formatTargetPrice(line.price);
+                        const labelText = `${line.type}: ${formattedPrice}`;
+                        
+                        // Only allow tapping High and Low targets to open modal
+                        const isClickable = line.type === 'High' || line.type === 'Low';
+                        
+                        return (
+                          <TouchableOpacity
+                            key={`price-target-label-${line.type}`}
                             style={{
-                              fontSize: 11,
-                              fontWeight: '600',
-                              color: labelTextColor,
+                              backgroundColor: labelBackgroundColor,
+                              paddingHorizontal: 6,
+                              paddingVertical: 2,
+                              borderRadius: 4,
+                              borderWidth: 1,
+                              borderColor: line.color,
+                              marginTop: index > 0 ? 4 : 0,
                             }}
+                            onPress={isClickable ? () => {
+                              setPriceTargetModalType(line.type === 'High' ? 'high' : 'low');
+                              setPriceTargetModalOpen(true);
+                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                            } : undefined}
+                            activeOpacity={isClickable ? 0.7 : 1}
+                            disabled={!isClickable}
                           >
-                            {labelText}
-                          </Text>
-                        </TouchableOpacity>
-                      );
-                    })}
+                            <Text
+                              style={{
+                                fontSize: 11,
+                                fontWeight: '600',
+                                color: labelTextColor,
+                              }}
+                            >
+                              {labelText}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
                   </>
                 );
               })()}
@@ -2408,20 +2426,13 @@ export const StockLineChart: React.FC<StockLineChartProps> = ({
       )}
       
       {/* Price Target Modal */}
-      {(() => {
-        console.log('[StockLineChart] Rendering modal with priceTargets:', priceTargets?.length || 0);
-        console.log('[StockLineChart] Modal open:', priceTargetModalOpen);
-        console.log('[StockLineChart] Modal type:', priceTargetModalType);
-        return (
-          <PriceTargetModal
-            isOpen={priceTargetModalOpen}
-            onClose={() => setPriceTargetModalOpen(false)}
-            title={priceTargetModalType === 'high' ? 'Highest' : 'Lowest'}
-            priceTargets={priceTargets}
-            type={priceTargetModalType}
-          />
-        );
-      })()}
+      <PriceTargetModal
+        isOpen={priceTargetModalOpen}
+        onClose={() => setPriceTargetModalOpen(false)}
+        title={priceTargetModalType === 'high' ? 'Highest' : 'Lowest'}
+        priceTargets={priceTargets}
+        type={priceTargetModalType}
+      />
     </View>
   );
 };

@@ -7,15 +7,14 @@
  * Feature: analyst-price-targets
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Modal,
   View,
   Text,
   TouchableOpacity,
-  ScrollView,
+  FlatList,
   StyleSheet,
-  Pressable,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { PriceTarget } from '../../services/PriceTargetsService';
@@ -30,35 +29,43 @@ interface PriceTargetModalProps {
   type: 'high' | 'low';
 }
 
+type SortMode = 'price' | 'date';
+
 export function PriceTargetModal({
   isOpen,
   onClose,
   title,
-  priceTargets,
+  priceTargets = [],
   type,
 }: PriceTargetModalProps) {
   const { isDark } = useTheme();
   const themeColors = isDark ? colors.dark : colors.light;
+  const [sortMode, setSortMode] = useState<SortMode>('price');
+  
+  // Reset sort mode when modal is closed
+  React.useEffect(() => {
+    if (!isOpen) {
+      setSortMode('price');
+    }
+  }, [isOpen]);
 
-  // Debug logging
-  console.log('[PriceTargetModal] isOpen:', isOpen);
-  console.log('[PriceTargetModal] priceTargets count:', priceTargets?.length || 0);
-  console.log('[PriceTargetModal] type:', type);
-  console.log('[PriceTargetModal] priceTargets:', JSON.stringify(priceTargets, null, 2));
-
-  // Filter and sort based on type
-  const sortedTargets = [...priceTargets]
+  // Filter and sort based on type and sort mode
+  const sortedTargets = (priceTargets || [])
     .filter((t) => t && typeof t.price_target === 'number')
     .sort((a, b) => {
-      if (type === 'high') {
-        return b.price_target - a.price_target; // Highest to lowest
+      if (sortMode === 'date') {
+        // Newest to oldest by published_date
+        return new Date(b.published_date).getTime() - new Date(a.published_date).getTime();
       } else {
-        return a.price_target - b.price_target; // Lowest to highest
+        // Sort by price
+        if (type === 'high') {
+          return b.price_target - a.price_target; // Highest to lowest
+        } else {
+          return a.price_target - b.price_target; // Lowest to highest
+        }
       }
     })
-    .slice(0, 10); // Take top/bottom 10
-  
-  console.log('[PriceTargetModal] sortedTargets count:', sortedTargets.length);
+    .slice(0, 50); // Take top/bottom 50
 
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
@@ -68,6 +75,56 @@ export function PriceTargetModal({
     return `${month} ${day}, ${year}`;
   };
 
+  const renderItem = ({ item: target, index }: { item: PriceTarget; index: number }) => (
+    <View
+      style={[
+        styles.targetItem,
+        index < sortedTargets.length - 1 && {
+          borderBottomWidth: 1,
+          borderBottomColor: themeColors.border,
+        },
+      ]}
+    >
+      <Text
+        style={[
+          styles.targetIndex,
+          { color: themeColors.mutedForeground },
+        ]}
+      >
+        {index + 1}.
+      </Text>
+      <View style={styles.targetDetails}>
+        <View style={styles.targetRow}>
+          <Text
+            style={[
+              styles.analystFirm,
+              { color: themeColors.foreground },
+            ]}
+            numberOfLines={1}
+          >
+            {target.analyst_firm}
+          </Text>
+          <Text
+            style={[
+              styles.targetPrice,
+              { color: themeColors.foreground },
+            ]}
+          >
+            ${target.price_target}
+          </Text>
+        </View>
+        <Text
+          style={[
+            styles.publishedDate,
+            { color: themeColors.mutedForeground },
+          ]}
+        >
+          {formatDate(target.published_date)}
+        </Text>
+      </View>
+    </View>
+  );
+
   return (
     <Modal
       visible={isOpen}
@@ -75,10 +132,17 @@ export function PriceTargetModal({
       animationType="fade"
       onRequestClose={onClose}
     >
-      <Pressable style={styles.overlay} onPress={onClose}>
-        <Pressable
+      <View style={styles.overlay}>
+        {/* Background overlay - tap to close */}
+        <TouchableOpacity
+          style={StyleSheet.absoluteFill}
+          activeOpacity={1}
+          onPress={onClose}
+        />
+        
+        {/* Modal content */}
+        <View
           style={[styles.modalContainer, { backgroundColor: themeColors.card }]}
-          onPress={(e) => e.stopPropagation()}
         >
           {/* Header */}
           <View
@@ -93,27 +157,37 @@ export function PriceTargetModal({
                 { color: themeColors.foreground },
               ]}
             >
-              {title} Price Targets
+              {sortMode === 'date' ? 'Latest Price Targets' : `${title} Price Targets`}
             </Text>
-            <TouchableOpacity
-              onPress={onClose}
-              style={styles.closeButton}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            >
-              <Ionicons
-                name="close"
-                size={24}
-                color={themeColors.mutedForeground}
-              />
-            </TouchableOpacity>
+            <View style={styles.headerButtons}>
+              <TouchableOpacity
+                onPress={() => setSortMode(sortMode === 'price' ? 'date' : 'price')}
+                style={styles.sortButton}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Ionicons
+                  name={sortMode === 'price' ? 'calendar-outline' : 'stats-chart-outline'}
+                  size={20}
+                  color={themeColors.foreground}
+                />
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={onClose}
+                style={styles.closeButton}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Ionicons
+                  name="close"
+                  size={24}
+                  color={themeColors.mutedForeground}
+                />
+              </TouchableOpacity>
+            </View>
           </View>
 
-          {/* Content */}
-          <ScrollView
-            style={styles.content}
-            contentContainerStyle={styles.contentContainer}
-          >
-            {sortedTargets.length === 0 ? (
+          {/* Content - FlatList for proper scrolling */}
+          {sortedTargets.length === 0 ? (
+            <View style={styles.emptyContainer}>
               <Text
                 style={[
                   styles.emptyText,
@@ -122,63 +196,18 @@ export function PriceTargetModal({
               >
                 No price targets available
               </Text>
-            ) : (
-              <View style={styles.targetsList}>
-                {sortedTargets.map((target, index) => (
-                  <View
-                    key={target._id}
-                    style={[
-                      styles.targetItem,
-                      index < sortedTargets.length - 1 && {
-                        borderBottomWidth: 1,
-                        borderBottomColor: themeColors.border,
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.targetIndex,
-                        { color: themeColors.muted },
-                      ]}
-                    >
-                      {index + 1}.
-                    </Text>
-                    <View style={styles.targetDetails}>
-                      <View style={styles.targetRow}>
-                        <Text
-                          style={[
-                            styles.analystFirm,
-                            { color: themeColors.foreground },
-                          ]}
-                          numberOfLines={1}
-                        >
-                          {target.analyst_firm}
-                        </Text>
-                        <Text
-                          style={[
-                            styles.targetPrice,
-                            { color: themeColors.foreground },
-                          ]}
-                        >
-                          ${target.price_target}
-                        </Text>
-                      </View>
-                      <Text
-                        style={[
-                          styles.publishedDate,
-                          { color: themeColors.mutedForeground },
-                        ]}
-                      >
-                        {formatDate(target.published_date)}
-                      </Text>
-                    </View>
-                  </View>
-                ))}
-              </View>
-            )}
-          </ScrollView>
-        </Pressable>
-      </Pressable>
+            </View>
+          ) : (
+            <FlatList
+              data={sortedTargets}
+              renderItem={renderItem}
+              keyExtractor={(item) => item._id}
+              contentContainerStyle={styles.listContent}
+              showsVerticalScrollIndicator={true}
+            />
+          )}
+        </View>
+      </View>
     </Modal>
   );
 }
@@ -193,7 +222,7 @@ const styles = StyleSheet.create({
   },
   modalContainer: {
     width: '100%',
-    maxWidth: 448, // max-w-md equivalent
+    maxWidth: 448,
     maxHeight: '80%',
     borderRadius: 12,
     shadowColor: '#000',
@@ -207,7 +236,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: 16,
+    paddingBottom: 16,
+    paddingHorizontal: 16,
     borderBottomWidth: 1,
   },
   headerTitle: {
@@ -215,13 +245,21 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     flex: 1,
   },
+  headerButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  sortButton: {
+    padding: 4,
+  },
   closeButton: {
     padding: 4,
   },
-  content: {
-    flex: 1,
+  listContent: {
+    padding: 16,
   },
-  contentContainer: {
+  emptyContainer: {
     padding: 16,
   },
   emptyText: {
@@ -229,18 +267,15 @@ const styles = StyleSheet.create({
     paddingVertical: 32,
     fontSize: 14,
   },
-  targetsList: {
-    gap: 0,
-  },
   targetItem: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 12,
-    paddingVertical: 8,
+    paddingVertical: 12,
   },
   targetIndex: {
     fontWeight: '500',
-    minWidth: 20,
+    minWidth: 24,
     fontSize: 14,
   },
   targetDetails: {

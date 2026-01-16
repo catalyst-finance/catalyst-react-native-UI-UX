@@ -340,6 +340,7 @@ export const StockDetailScreen: React.FC<StockDetailScreenProps> = ({ ticker, on
     return (
       <SafeAreaView 
         style={[styles.container, { backgroundColor: themeColors.background }]}
+        edges={['left', 'right', 'bottom']}
       >
         <View style={styles.header}>
           <TouchableOpacity onPress={handleBack} style={styles.backButton}>
@@ -368,6 +369,7 @@ export const StockDetailScreen: React.FC<StockDetailScreenProps> = ({ ticker, on
   return (
     <SafeAreaView 
       style={[styles.container, { backgroundColor: themeColors.background }]}
+      edges={['left', 'right', 'bottom']}
     >
       {/* Header - Just back button */}
       <View style={[styles.header, { borderBottomColor: themeColors.border }]}>
@@ -1223,8 +1225,7 @@ const styles = StyleSheet.create({
     marginBottom: 0,
   },
   section: {
-    paddingLeft: 50,
-    paddingRight: 0,
+    paddingHorizontal: 32,
     paddingVertical: 16,
     marginBottom: 8,
   },
@@ -1277,8 +1278,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 8,
     marginTop: 16,
-    marginLeft: -25,
-    marginRight: 25,
   },
   showMoreButtonText: {
     fontSize: 14,

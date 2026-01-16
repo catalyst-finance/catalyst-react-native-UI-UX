@@ -177,8 +177,6 @@ class PriceTargetsServiceClass {
       const baseUrl = this.getBaseUrl();
       const url = `${baseUrl}/api/price-targets/${symbol}?limit=${limit}`;
       
-      console.log(`[PriceTargetsService] Fetching price targets for ${symbol} from ${url}`);
-      
       const response = await fetch(url, {
         method: 'GET',
         headers: {
@@ -219,9 +217,16 @@ class PriceTargetsServiceClass {
       // Mark backend as available
       this.backendAvailable = true;
       
-      const rawTargets: RawPriceTarget[] = data.priceTargets || [];
-      
-      console.log(`[PriceTargetsService] Received ${rawTargets.length} raw price targets for ${symbol}`);
+      // Handle different response formats
+      // Backend might return: { priceTargets: [...] } or just [...]
+      let rawTargets: RawPriceTarget[] = [];
+      if (Array.isArray(data)) {
+        rawTargets = data;
+      } else if (data.priceTargets && Array.isArray(data.priceTargets)) {
+        rawTargets = data.priceTargets;
+      } else if (data.data && Array.isArray(data.data)) {
+        rawTargets = data.data;
+      }
       
       // Transform raw MongoDB data to normalized PriceTarget interface
       const transformedTargets: PriceTarget[] = [];
@@ -232,12 +237,8 @@ class PriceTargetsServiceClass {
         }
       }
       
-      console.log(`[PriceTargetsService] Transformed ${transformedTargets.length} valid price targets for ${symbol}`);
-      
       // Requirement 1.2: Deduplicate by analyst firm, keeping most recent
       const deduplicated = this.deduplicateByAnalyst(transformedTargets);
-      
-      console.log(`[PriceTargetsService] After deduplication: ${deduplicated.length} price targets for ${symbol}`);
       
       return deduplicated;
       

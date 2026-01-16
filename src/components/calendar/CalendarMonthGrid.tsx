@@ -670,6 +670,7 @@ const styles = StyleSheet.create({
   },
   gridContainer: {
     paddingHorizontal: 16,
+    paddingBottom: 16,
   },
   quarterSection: {
     marginBottom: 16,
@@ -678,14 +679,16 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '500',
     marginBottom: 8,
-    paddingHorizontal: 4,
   },
   monthGrid: {
     flexDirection: 'row',
-    gap: 12,
+    gap: 8,
+    paddingRight: 25,
   },
   monthCellWrapper: {
     flex: 1,
+    minWidth: 0,
+    maxWidth: '31%',
   },
   monthCell: {
     minHeight: 120,
@@ -766,13 +769,13 @@ const styles = StyleSheet.create({
   },
   expandedTimelineWrapper: {
     marginTop: 12,
-    paddingHorizontal: 16,
   },
   timelineHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 16,
+    paddingRight: 25,
   },
   timelineHeaderTitle: {
     fontSize: 14,
@@ -784,6 +787,7 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     alignItems: 'center',
     justifyContent: 'center',
+    marginRight: 5,
   },
   closeButtonText: {
     fontSize: 16,

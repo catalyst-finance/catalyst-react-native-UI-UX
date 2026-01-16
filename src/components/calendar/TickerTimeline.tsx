@@ -13,7 +13,9 @@ import {
   StyleSheet,
   ScrollView,
   Animated,
+  Dimensions,
 } from 'react-native';
+import * as Haptics from 'expo-haptics';
 import { Image as ExpoImage } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -24,6 +26,7 @@ import { getEventIcon } from '../../utils/event-icons';
 import type { MarketEvent } from '../../services/supabase/EventsAPI';
 
 const EVENT_CARD_WIDTH = 280;
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 interface TickerTimelineProps {
   ticker: string;
@@ -188,19 +191,45 @@ export const TickerTimeline: React.FC<TickerTimelineProps> = ({
     );
   };
 
+  // Calculate padding to center first event card
+  const centerOffset = (SCREEN_WIDTH - EVENT_CARD_WIDTH) / 2;
+  // Align first card with logo position (logo is at 16px)
+  const cardStartOffset = 16;
+
   return (
     <View style={styles.container}>
-      {/* Timeline Container with Logo Inside ScrollView */}
+      {/* Timeline Container */}
       <View style={styles.timelineWrapper}>
         {/* Timeline line */}
         <View style={[styles.timelineLine, { backgroundColor: themeColors.border }]} />
 
-        {/* Events horizontal scroll with logo */}
+        {/* Ticker Logo/Badge - Positioned on timeline */}
+        <View style={styles.logoContainer}>
+          {logoUrl ? (
+            <ExpoImage
+              source={{ uri: logoUrl }}
+              style={styles.tickerLogo}
+              contentFit="contain"
+              cachePolicy="memory-disk"
+            />
+          ) : (
+            <View style={[styles.tickerBadge, { backgroundColor: themeColors.muted }]}>
+              <Text style={[styles.tickerText, { color: themeColors.mutedForeground }]}>
+                {ticker}
+              </Text>
+            </View>
+          )}
+        </View>
+
+        {/* Events horizontal scroll */}
         <ScrollView
           ref={scrollViewRef}
           horizontal
           showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.eventsScrollContent}
+          contentContainerStyle={[
+            styles.eventsScrollContent,
+            { paddingLeft: cardStartOffset, paddingRight: centerOffset }
+          ]}
           snapToInterval={EVENT_CARD_WIDTH + 12}
           decelerationRate="fast"
           nestedScrollEnabled={true}
@@ -208,25 +237,11 @@ export const TickerTimeline: React.FC<TickerTimelineProps> = ({
             // Disable parent scroll when horizontal scrolling starts
             e.stopPropagation();
           }}
+          onScrollEndDrag={() => {
+            // Haptic feedback when card snaps to center
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          }}
         >
-          {/* Ticker Logo/Badge - First item in scroll */}
-          <View style={styles.tickerContainer}>
-            {logoUrl ? (
-              <ExpoImage
-                source={{ uri: logoUrl }}
-                style={styles.tickerLogo}
-                contentFit="contain"
-                cachePolicy="memory-disk"
-              />
-            ) : (
-              <View style={[styles.tickerBadge, { backgroundColor: themeColors.muted }]}>
-                <Text style={[styles.tickerText, { color: themeColors.mutedForeground }]}>
-                  {ticker}
-                </Text>
-              </View>
-            )}
-          </View>
-
           {/* Event Cards */}
           {sortedEvents.map((event) =>
             renderEventCard(event, event.id === nextUpcomingEvent?.id)
@@ -252,30 +267,30 @@ const styles = StyleSheet.create({
     right: 0,
     zIndex: 0,
   },
+  logoContainer: {
+    position: 'absolute',
+    left: 16,
+    top: 3, // Center on timeline (20px timeline top - 17px logo height / 2)
+    width: 34,
+    height: 34,
+    zIndex: 10,
+  },
   eventsScrollContent: {
-    paddingHorizontal: 4,
     paddingTop: 0,
     paddingBottom: 16,
     flexDirection: 'row',
     gap: 12,
     alignItems: 'flex-start',
   },
-  tickerContainer: {
-    width: 48,
-    height: 48,
-    marginRight: 12,
-    marginTop: 84, // Align with center of event card (24 + 24 + 24 + 12 = 84)
-    flexShrink: 0, // Prevent shrinking
-  },
   tickerLogo: {
-    width: 48,
-    height: 48,
-    borderRadius: 8,
+    width: 34,
+    height: 34,
+    borderRadius: 6,
   },
   tickerBadge: {
-    width: 48,
-    height: 48,
-    borderRadius: 8,
+    width: 34,
+    height: 34,
+    borderRadius: 6,
     alignItems: 'center',
     justifyContent: 'center',
   },

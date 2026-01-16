@@ -513,6 +513,12 @@ export const PortfolioChart: React.FC<PortfolioChartProps> = ({
     // Sort timestamps
     const sortedTimestamps = Array.from(allTimestamps).sort((a, b) => a - b);
     
+    // Calculate total cost basis for pre-purchase period
+    const totalCostBasis = holdingsList.reduce((total, holding) => {
+      const cost = holding.avgCost ?? 0;
+      return total + (holding.shares * cost);
+    }, 0);
+    
     // Track last known prices for forward-fill
     const lastKnownPrices: Record<string, number> = {};
     
@@ -524,11 +530,11 @@ export const PortfolioChart: React.FC<PortfolioChartProps> = ({
       let hasAllPrices = true;
       let session: string | undefined;
 
-      // Before purchase date, portfolio value is 0
+      // Before purchase date, portfolio value is the total cost basis (flat line)
       if (timestamp < PURCHASE_DATE) {
         portfolioHistory.push({
           timestamp,
-          value: 0,
+          value: totalCostBasis,
           session,
         });
         return;
