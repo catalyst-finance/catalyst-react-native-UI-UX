@@ -18,7 +18,7 @@ export interface PortfolioHolding {
 // Test portfolio based on actual trades
 export const TEST_PORTFOLIO_HOLDINGS: PortfolioHolding[] = [
   { ticker: 'TSLA', shares: 10, avgCost: 453.14, purchaseDate: '2026-01-02' },
-  { ticker: 'MNMD', shares: 200, avgCost: 13.45, purchaseDate: '2026-01-02' },
+  { ticker: 'DFTX', shares: 200, avgCost: 13.45, purchaseDate: '2026-01-02' },
   { ticker: 'TMC', shares: 500, avgCost: 6.42, purchaseDate: '2026-01-02' },
 ];
 

@@ -202,13 +202,13 @@ class PreloadService {
 
       // Add default tickers if none found
       if (tickers.size === 0) {
-        ['TSLA', 'MNMD', 'TMC', 'AAPL'].forEach(t => tickers.add(t));
+        ['TSLA', 'DFTX', 'TMC', 'AAPL'].forEach(t => tickers.add(t));
       }
 
     } catch (error) {
       console.error('Error getting tickers to preload:', error);
       // Return defaults
-      return ['TSLA', 'MNMD', 'TMC', 'AAPL'];
+      return ['TSLA', 'DFTX', 'TMC', 'AAPL'];
     }
 
     return Array.from(tickers);

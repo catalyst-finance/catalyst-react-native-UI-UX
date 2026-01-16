@@ -14,7 +14,7 @@ import HistoricalPriceAPI from '../services/supabase/HistoricalPriceAPI';
 import EventsAPI, { MarketEvent } from '../services/supabase/EventsAPI';
 
 // Default tickers
-const DEFAULT_HOLDINGS = ['TSLA', 'MNMD', 'TMC'];
+const DEFAULT_HOLDINGS = ['TSLA', 'DFTX', 'TMC'];
 const DEFAULT_WATCHLIST = ['AAPL'];
 
 export interface PortfolioHolding {
@@ -105,7 +105,7 @@ export const AppDataProvider: React.FC<AppDataProviderProps> = ({
       const watchlist = watchlistStr ? JSON.parse(watchlistStr) : DEFAULT_WATCHLIST;
       const portfolio = portfolioStr ? JSON.parse(portfolioStr) : [
         { ticker: 'TSLA', shares: 10, avgCost: 453.14 },
-        { ticker: 'MNMD', shares: 200, avgCost: 13.45 },
+        { ticker: 'DFTX', shares: 200, avgCost: 13.45 },
         { ticker: 'TMC', shares: 500, avgCost: 6.42 },
       ];
 
@@ -117,7 +117,7 @@ export const AppDataProvider: React.FC<AppDataProviderProps> = ({
         watchlist: DEFAULT_WATCHLIST,
         portfolioHoldings: [
           { ticker: 'TSLA', shares: 10, avgCost: 453.14 },
-          { ticker: 'MNMD', shares: 200, avgCost: 13.45 },
+          { ticker: 'DFTX', shares: 200, avgCost: 13.45 },
           { ticker: 'TMC', shares: 500, avgCost: 6.42 },
         ],
       };
